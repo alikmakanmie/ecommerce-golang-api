@@ -6,3 +6,9 @@ bin/
 *.log
 *.db-shm
 *.db-wal
+
+# Cloudflare tunnel token (secret, never commit)
+.cloudflared-token
+cf_tunnel.log
+keepalive.log
+keepalive.out
