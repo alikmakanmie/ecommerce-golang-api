@@ -65,7 +65,7 @@ Seeder juga membuat 4 kategori dan 8 produk dummy. Seeder idempotent (skip bila 
 | GET | /api/v1/admin/orders | admin |
 | PATCH | /api/v1/admin/orders/:id/status | admin |
 | POST | /api/v1/payments/webhook | publik (simulasi) |
-| GET | /mock-pay/:transaction_id | publik |
+| GET | /api/v1/mock-pay/:transaction_id | publik |
 
 Filter produk: `?search=hp&category_id=<uuid>&min_price=100000&max_price=5000000&page=1&limit=20`.
 
@@ -109,7 +109,7 @@ Stok dikurangi saat checkout dan dikembalikan bila order dibatalkan / payment ex
 ## Mock Payment Gateway
 
 `internal/payment/mock_gateway.go` menghasilkan `transaction_id` (`MOCK-...`),
-`payment_url` (`/mock-pay/<tx>`), dan `qr_string` untuk metode `qris`.
+`payment_url` (`/api/v1/mock-pay/<tx>`), dan `qr_string` untuk metode `qris`.
 Webhook menerima `{"transaction_id": "...", "transaction_status": "settlement|expire|cancel|failed|pending"}`
 (field `status` juga diterima sebagai alias). `settlement` mengubah order menjadi `paid`,
 `expire`/`cancel` membatalkan order pending dan mengembalikan stok. Webhook settlement idempotent.
