@@ -16,7 +16,7 @@ func NewMockGateway(baseURL string) *MockGateway {
 
 func (g *MockGateway) CreateCharge(orderNumber string, amount int64, method string) (transactionID, paymentURL, qrString string, expiresAt time.Time) {
 	transactionID = fmt.Sprintf("MOCK-%s-%d", orderNumber, time.Now().UnixNano())
-	paymentURL = g.BaseURL + "/mock-pay/" + transactionID
+	paymentURL = g.BaseURL + "/api/v1/mock-pay/" + transactionID
 	if strings.EqualFold(method, "qris") {
 		qrString = "MOCK-QRIS-" + transactionID
 	}
