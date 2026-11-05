@@ -41,8 +41,8 @@ func (c *Cart) TotalItems() int {
 
 type CartItem struct {
 	ID        uuid.UUID      `gorm:"type:uuid;primaryKey" json:"id"`
-	CartID    uuid.UUID      `gorm:"type:uuid;not null;index" json:"cart_id"`
-	ProductID uuid.UUID      `gorm:"type:uuid;not null;index" json:"product_id"`
+	CartID    uuid.UUID      `gorm:"type:uuid;not null;uniqueIndex:idx_cart_product,priority:1" json:"cart_id"`
+	ProductID uuid.UUID      `gorm:"type:uuid;not null;uniqueIndex:idx_cart_product,priority:2" json:"product_id"`
 	Product   Product        `gorm:"foreignKey:ProductID" json:"product,omitempty"`
 	Quantity  int            `gorm:"not null;check:quantity>0" json:"quantity"`
 	Price     int64          `gorm:"not null;check:price>=0" json:"price"`

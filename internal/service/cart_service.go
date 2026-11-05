@@ -11,12 +11,13 @@ import (
 )
 
 type CartService struct {
+	db          *gorm.DB
 	cartRepo    *repository.CartRepository
 	productRepo *repository.ProductRepository
 }
 
-func NewCartService(cartRepo *repository.CartRepository, productRepo *repository.ProductRepository) *CartService {
-	return &CartService{cartRepo: cartRepo, productRepo: productRepo}
+func NewCartService(db *gorm.DB, cartRepo *repository.CartRepository, productRepo *repository.ProductRepository) *CartService {
+	return &CartService{db: db, cartRepo: cartRepo, productRepo: productRepo}
 }
 
 func (s *CartService) GetCart(userID uuid.UUID) (*domain.Cart, error) {
@@ -31,29 +32,55 @@ func (s *CartService) AddItem(userID, productID uuid.UUID, qty int) (*domain.Car
 	if qty <= 0 {
 		return nil, errors.New("kuantitas harus lebih dari 0")
 	}
-	product, err := s.productRepo.FindByID(productID)
-	if err != nil {
-		return nil, errors.New("produk tidak ditemukan")
-	}
-	if !product.IsActive {
-		return nil, errors.New("produk tidak aktif")
-	}
-	cart, err := s.cartRepo.GetOrCreateByUserID(userID)
+	var result *domain.CartItem
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		productRepo := s.productRepo.WithTx(tx)
+		cartRepo := s.cartRepo.WithTx(tx)
+
+		product, err := productRepo.FindByID(productID)
+		if err != nil {
+			return errors.New("produk tidak ditemukan")
+		}
+		if !product.IsActive {
+			return errors.New("produk tidak aktif")
+		}
+		cart, err := cartRepo.GetOrCreateByUserID(userID)
+		if err != nil {
+			return err
+		}
+		// Cek stok cepat sebelum upsert (memberi error lebih awal pada
+		// kasus umum); penjaga final yang benar-benar aman ada di bawah,
+		// sesudah upsert, karena cek ini sendiri masih bisa balapan.
+		existing, err := cartRepo.FindItem(cart.ID, productID)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		existingQty := 0
+		if err == nil {
+			existingQty = existing.Quantity
+		}
+		if product.Stock < existingQty+qty {
+			return errors.New("stok tidak mencukupi")
+		}
+		// Increment atomik di database (ON CONFLICT DO UPDATE).
+		item, err := cartRepo.UpsertItemAtomic(cart.ID, productID, qty, product.Price)
+		if err != nil {
+			return err
+		}
+		// Penjaga stok atomik: upsert sudah commit ke dalam transaksi ini
+		// dan baris yang berkonflik dikunci sampai transaksi selesai, jadi
+		// kuantitas yang dibaca di sini adalah nilai final yang benar.
+		// Bila melebihi stok, kembalikan error agar transaksi di-rollback.
+		if item.Quantity > product.Stock {
+			return errors.New("stok tidak mencukupi")
+		}
+		result = item
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	existing, err := s.cartRepo.FindItem(cart.ID, productID)
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
-	}
-	existingQty := 0
-	if err == nil {
-		existingQty = existing.Quantity
-	}
-	if product.Stock < existingQty+qty {
-		return nil, errors.New("stok tidak mencukupi")
-	}
-	return s.cartRepo.AddOrUpdateItem(cart.ID, productID, qty, product.Price)
+	return result, nil
 }
 
 func (s *CartService) UpdateItemQty(userID, itemID uuid.UUID, qty int) error {

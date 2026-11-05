@@ -28,7 +28,7 @@ func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	authSvc := service.NewAuthService(userRepo, cfg)
 	userSvc := service.NewUserService(userRepo, addressRepo)
 	productSvc := service.NewProductService(productRepo, categoryRepo)
-	cartSvc := service.NewCartService(cartRepo, productRepo)
+	cartSvc := service.NewCartService(db, cartRepo, productRepo)
 	orderSvc := service.NewOrderService(db, orderRepo, cartRepo, productRepo, paymentRepo, addressRepo, gateway, cfg)
 	paymentSvc := service.NewPaymentService(db, paymentRepo, orderRepo, productRepo)
 

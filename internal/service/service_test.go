@@ -1,6 +1,7 @@
 package service
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -66,7 +67,7 @@ func newTestServices(t *testing.T, cfg *config.Config) *testServices {
 		auth:    NewAuthService(userRepo, cfg),
 		user:    NewUserService(userRepo, addressRepo),
 		product: NewProductService(productRepo, categoryRepo),
-		cart:    NewCartService(cartRepo, productRepo),
+		cart:    NewCartService(db, cartRepo, productRepo),
 		order:   NewOrderService(db, orderRepo, cartRepo, productRepo, paymentRepo, addressRepo, gateway, cfg),
 		pay:     NewPaymentService(db, paymentRepo, orderRepo, productRepo),
 	}
@@ -276,5 +277,82 @@ func TestCheckoutInsufficientStock(t *testing.T) {
 	after, _ := svc.product.GetProduct(p.ID)
 	if after.Stock != 0 {
 		t.Fatalf("stok = %d, want 0", after.Stock)
+	}
+}
+
+func TestAddItemConcurrent100(t *testing.T) {
+	cfg := setupTestDB(t)
+	svc := newTestServices(t, cfg)
+	p := mustCategoryProduct(t, svc, 200, 100000)
+	user, err := svc.auth.Register("Race", "race@example.com", "Password123", "081234567890")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	const n = 100
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			_, err := svc.cart.AddItem(user.ID, p.ID, 1)
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("AddItem konkuren error: %v", err)
+		}
+	}
+
+	cart, err := svc.cart.GetCart(user.ID)
+	if err != nil {
+		t.Fatalf("get cart: %v", err)
+	}
+	if len(cart.Items) != 1 {
+		t.Fatalf("jumlah baris item = %d, want 1 (upsert harus menggabung)", len(cart.Items))
+	}
+	if cart.Items[0].Quantity != n {
+		t.Fatalf("quantity = %d, want %d (lost-update)", cart.Items[0].Quantity, n)
+	}
+}
+
+func TestAddItemConcurrentStockLimit(t *testing.T) {
+	cfg := setupTestDB(t)
+	svc := newTestServices(t, cfg)
+	p := mustCategoryProduct(t, svc, 10, 100000)
+	user, err := svc.auth.Register("RaceStock", "racestock@example.com", "Password123", "081234567890")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	const n = 30
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	succeeded := 0
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			if _, err := svc.cart.AddItem(user.ID, p.ID, 1); err == nil {
+				mu.Lock()
+				succeeded++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if succeeded != 10 {
+		t.Fatalf("AddItem sukses = %d, want 10 (stok harus dihormati)", succeeded)
+	}
+	cart, err := svc.cart.GetCart(user.ID)
+	if err != nil {
+		t.Fatalf("get cart: %v", err)
+	}
+	if cart.Items[0].Quantity != 10 {
+		t.Fatalf("quantity = %d, want 10", cart.Items[0].Quantity)
 	}
 }
