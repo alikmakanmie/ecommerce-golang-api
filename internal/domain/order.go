@@ -1,0 +1,89 @@
+package domain
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
+
+type OrderStatus string
+
+const (
+	OrderPending    OrderStatus = "pending"
+	OrderPaid       OrderStatus = "paid"
+	OrderProcessing OrderStatus = "processing"
+	OrderShipped    OrderStatus = "shipped"
+	OrderCompleted  OrderStatus = "completed"
+	OrderCancelled  OrderStatus = "cancelled"
+)
+
+type Order struct {
+	ID              uuid.UUID      `gorm:"type:uuid;primaryKey" json:"id"`
+	UserID          uuid.UUID      `gorm:"type:uuid;not null;index" json:"user_id"`
+	OrderNumber     string         `gorm:"size:30;uniqueIndex;not null" json:"order_number"`
+	AddressID       *uuid.UUID     `gorm:"type:uuid;index" json:"address_id,omitempty"`
+	Address         *Address       `gorm:"foreignKey:AddressID" json:"shipping_address,omitempty"`
+	ShippingName    string         `gorm:"size:100;not null" json:"shipping_name"`
+	ShippingPhone   string         `gorm:"size:20;not null" json:"shipping_phone"`
+	ShippingAddress string         `gorm:"size:500;not null" json:"shipping_address_text"`
+	Status          OrderStatus    `gorm:"size:20;not null;default:pending;index" json:"status"`
+	Subtotal        int64          `gorm:"not null" json:"subtotal"`
+	ShippingCost    int64          `gorm:"not null;default:0" json:"shipping_cost"`
+	Total           int64          `gorm:"not null" json:"total"`
+	PaymentMethod   string         `gorm:"size:30;not null" json:"payment_method"`
+	Notes           string         `gorm:"size:500" json:"notes"`
+	Items           []OrderItem    `gorm:"foreignKey:OrderID" json:"items"`
+	Payment         *Payment       `gorm:"foreignKey:OrderID" json:"payment,omitempty"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+	DeletedAt       gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+func (o *Order) BeforeCreate(tx *gorm.DB) error {
+	if o.ID == uuid.Nil {
+		o.ID = uuid.New()
+	}
+	return nil
+}
+
+func (o *Order) CanCancel() bool {
+	return o.Status == OrderPending || o.Status == OrderPaid
+}
+
+func (o *Order) CanTransitionTo(target OrderStatus) bool {
+	allowed := map[OrderStatus][]OrderStatus{
+		OrderPending:    {OrderPaid, OrderCancelled},
+		OrderPaid:       {OrderProcessing, OrderCancelled},
+		OrderProcessing: {OrderShipped, OrderCancelled},
+		OrderShipped:    {OrderCompleted},
+		OrderCompleted:  {},
+		OrderCancelled:  {},
+	}
+	for _, s := range allowed[o.Status] {
+		if s == target {
+			return true
+		}
+	}
+	return false
+}
+
+type OrderItem struct {
+	ID          uuid.UUID      `gorm:"type:uuid;primaryKey" json:"id"`
+	OrderID     uuid.UUID      `gorm:"type:uuid;not null;index" json:"order_id"`
+	ProductID   uuid.UUID      `gorm:"type:uuid;not null;index" json:"product_id"`
+	ProductName string         `gorm:"size:150;not null" json:"product_name"`
+	Price       int64          `gorm:"not null" json:"price"`
+	Quantity    int            `gorm:"not null;check:quantity>0" json:"quantity"`
+	Subtotal    int64          `gorm:"not null" json:"subtotal"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+func (i *OrderItem) BeforeCreate(tx *gorm.DB) error {
+	if i.ID == uuid.Nil {
+		i.ID = uuid.New()
+	}
+	return nil
+}
