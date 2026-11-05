@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"ecommerce-api/internal/config"
@@ -19,7 +20,11 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 	case "postgres":
 		dialector = postgres.Open(cfg.PostgresDSN())
 	case "sqlite":
-		dialector = sqlite.Open(cfg.SQLitePath)
+		dsn := cfg.SQLitePath
+		if !strings.Contains(dsn, "?") {
+			dsn += "?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&cache=shared"
+		}
+		dialector = sqlite.Open(dsn)
 	default:
 		return nil, fmt.Errorf("driver tidak didukung: %s", cfg.DBDriver)
 	}
@@ -35,8 +40,22 @@ func Connect(cfg *config.Config) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetMaxOpenConns(100)
+	if cfg.DBDriver == "sqlite" {
+		// WAL + busy timeout ditegakkan juga lewat PRAGMA agar berlaku
+		// walau DSN suatu saat berubah; satu koneksi menghindari
+		// "database is locked" pada driver sqlite.
+		var mode string
+		_ = db.Raw("PRAGMA journal_mode=WAL;").Scan(&mode).Error
+		_ = db.Exec("PRAGMA busy_timeout = 5000;").Error
+		if cfg.AppEnv == "development" {
+			fmt.Printf("sqlite journal_mode: %s\n", mode)
+		}
+		sqlDB.SetMaxIdleConns(1)
+		sqlDB.SetMaxOpenConns(1)
+	} else {
+		sqlDB.SetMaxIdleConns(10)
+		sqlDB.SetMaxOpenConns(100)
+	}
 	sqlDB.SetConnMaxLifetime(time.Hour)
 	return db, nil
 }

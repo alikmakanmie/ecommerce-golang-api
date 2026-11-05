@@ -1,0 +1,4 @@
+url=http://localhost:8080/api/v1/users/me method=PUT concurrency=50 duration=15.085s
+total=14726 ok(2xx)=14726 errors=0 error_pct=0.00%
+status breakdown: map[200:14726]
+rps=976.2 avg=51.03ms p50=31.59ms p95=136.94ms p99=189.24ms

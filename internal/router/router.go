@@ -15,19 +15,6 @@ import (
 	"gorm.io/gorm"
 )
 
-func corsMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization")
-		if c.Request.Method == http.MethodOptions {
-			c.AbortWithStatus(http.StatusNoContent)
-			return
-		}
-		c.Next()
-	}
-}
-
 func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	userRepo := repository.NewUserRepository(db)
 	addressRepo := repository.NewAddressRepository(db)
@@ -51,22 +38,28 @@ func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	categoryH := handler.NewCategoryHandler(productSvc)
 	cartH := handler.NewCartHandler(cartSvc)
 	orderH := handler.NewOrderHandler(orderSvc)
-	paymentH := handler.NewPaymentHandler(paymentSvc)
+	paymentH := handler.NewPaymentHandler(paymentSvc, cfg.WebhookSecret)
+
+	// 20 req/detik per IP untuk seluruh API, 5 login/menit per IP.
+	publicLimiter := middleware.NewRateLimiter(20, 40)
+	loginLimiter := middleware.NewRateLimiter(5.0/60.0, 5)
 
 	r := gin.Default()
-	r.Use(corsMiddleware())
+	r.Use(middleware.SecurityHeaders())
+	r.Use(middleware.CORS(cfg.CORSAllowedOrigins))
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "ecommerce-api"})
 	})
 
 	v1 := r.Group("/api/v1")
+	v1.Use(publicLimiter.Limit("terlalu banyak permintaan, coba lagi nanti"))
 	v1.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "ecommerce-api"})
 	})
 
 	// Public
 	v1.POST("/auth/register", authH.Register)
-	v1.POST("/auth/login", authH.Login)
+	v1.POST("/auth/login", loginLimiter.Limit("terlalu banyak percobaan login, coba lagi nanti"), authH.Login)
 	v1.POST("/auth/refresh", authH.Refresh)
 	v1.GET("/products", productH.ListProducts)
 	v1.GET("/products/:id", productH.GetProduct)

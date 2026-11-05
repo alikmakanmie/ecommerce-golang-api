@@ -40,13 +40,17 @@ func main() {
 	if cfg.AppEnv == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
+	if cfg.AppEnv != "production" && cfg.WebhookSecret == "" {
+		log.Println("peringatan: WEBHOOK_SECRET kosong — semua panggilan webhook akan ditolak (401)")
+	}
 	r := router.New(cfg, db)
 	srv := &http.Server{
-		Addr:         ":" + cfg.AppPort,
-		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:           ":" + cfg.AppPort,
+		Handler:        r,
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   10 * time.Second,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: 1 << 20,
 	}
 	go func() {
 		log.Printf("server listening on :%s (env=%s, db=%s)", cfg.AppPort, cfg.AppEnv, cfg.DBDriver)

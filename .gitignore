@@ -4,3 +4,5 @@
 *.db-journal
 bin/
 *.log
+*.db-shm
+*.db-wal

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -26,6 +27,8 @@ type Config struct {
 	JWTAccessTTL       time.Duration
 	JWTRefreshTTL      time.Duration
 	PaymentMockBaseURL string
+	WebhookSecret      string
+	CORSAllowedOrigins []string
 	SeedDB             bool
 }
 
@@ -75,15 +78,34 @@ func Load() (*Config, error) {
 		JWTAccessTTL:       time.Duration(accessMin) * time.Minute,
 		JWTRefreshTTL:      time.Duration(refreshDays) * 24 * time.Hour,
 		PaymentMockBaseURL: getEnv("PAYMENT_MOCK_BASE_URL", "http://localhost:8080"),
+		WebhookSecret:      os.Getenv("WEBHOOK_SECRET"),
+		CORSAllowedOrigins: splitCSV(getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8080")),
 		SeedDB:             getEnvBool("SEED_DB", false),
 	}
 	if len(cfg.JWTAccessSecret) < 32 || len(cfg.JWTRefreshSecret) < 32 {
 		return nil, fmt.Errorf("JWT_ACCESS_SECRET dan JWT_REFRESH_SECRET wajib minimal 32 karakter")
 	}
+	if cfg.WebhookSecret != "" && len(cfg.WebhookSecret) < 32 {
+		return nil, fmt.Errorf("WEBHOOK_SECRET wajib minimal 32 karakter bila di-set")
+	}
+	if cfg.AppEnv == "production" && cfg.WebhookSecret == "" {
+		return nil, fmt.Errorf("WEBHOOK_SECRET wajib di-set saat APP_ENV=production (webhook tanpa signature akan selalu ditolak)")
+	}
 	if cfg.DBDriver != "postgres" && cfg.DBDriver != "sqlite" {
 		return nil, fmt.Errorf("DB_DRIVER harus postgres atau sqlite, dapat: %s", cfg.DBDriver)
 	}
 	return cfg, nil
+}
+
+func splitCSV(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func (c *Config) PostgresDSN() string {

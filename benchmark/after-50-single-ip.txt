@@ -1,0 +1,4 @@
+url=http://localhost:8080/api/v1/products method=GET concurrency=50 duration=15.008s
+total=189604 ok(2xx)=340 errors=189264 error_pct=99.82%
+status breakdown: map[200:340 429:189264]
+rps=12633.8 avg=3.85ms p50=1.60ms p95=9.61ms p99=57.94ms
