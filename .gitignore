@@ -12,3 +12,12 @@ bin/
 cf_tunnel.log
 keepalive.log
 keepalive.out
+
+# Cloudflare API token untuk deploy Worker (secret, never commit)
+.cf-api-token
+.pinggy-url
+.pinggy-started
+
+# Foto produk: asli (master) + salinan web (di-sync ke VPS)
+uploads/
+uploads-original/

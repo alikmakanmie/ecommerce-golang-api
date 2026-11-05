@@ -199,3 +199,14 @@ cmd/api/main.go
 internal/config, database, domain, repository, service, payment, middleware, handler, router, seeder
 pkg/utils
 ```
+
+## Foto produk (uploads)
+
+Arsitektur: file asli (master) disimpan di VM Dhodi, salinan web di-sync ke VPS.
+
+- Asli: `uploads-original/` (gitignored) — kirim foto ke Dhodi atau taruh langsung di sini.
+- Salinan web: `uploads/` (gitignored) — sisi terpanjang maks 1280px, JPEG q82 / PNG & WebP dioptimasi.
+- Sync: `python3 scripts/sync-uploads.py sync` (rsync ke VPS via kunci SSH `~/.ssh/ecommerce-vps`, tanpa password); cron tiap 5 menit.
+- Ingest foto baru: `python3 scripts/sync-uploads.py ingest <file> [nama]` — mencetak URL publiknya.
+- API menyajikan salinan web di `GET /uploads/<file>` (route statis, direktori `./uploads`).
+- `image_url` produk diisi URL publik, mis. `http://203.175.11.164:2150/uploads/<file>` (atau `https://api.alikmakanmie.my.id/uploads/<file>` setelah domain live).

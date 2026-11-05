@@ -50,6 +50,9 @@ func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "ecommerce-api"})
 	})
+	// File gambar produk (salinan web, di-sync dari VM Dhodi).
+	// Direktori ./uploads relatif terhadap WorkingDirectory service.
+	r.Static("/uploads", "./uploads")
 
 	v1 := r.Group("/api/v1")
 	v1.Use(publicLimiter.Limit("terlalu banyak permintaan, coba lagi nanti"))
