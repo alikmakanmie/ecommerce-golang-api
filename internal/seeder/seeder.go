@@ -1,7 +1,6 @@
 package seeder
 
 import (
-
 	"ecommerce-api/internal/domain"
 	"ecommerce-api/pkg/utils"
 
@@ -33,10 +32,10 @@ func Run(db *gorm.DB) error {
 		return err
 	}
 	categories := []domain.Category{
-		{Name: "Electronics", Slug: "electronics", Description: "Perangkat elektronik"},
-		{Name: "Fashion", Slug: "fashion", Description: "Pakaian dan aksesoris"},
-		{Name: "Home & Living", Slug: "home-living", Description: "Perabot rumah tangga"},
-		{Name: "Books", Slug: "books", Description: "Buku dan literatur"},
+		{Name: "Makanan Utama", Slug: "makanan-utama", Description: "Nasi, ayam, dan hidangan utama khas Slaras"},
+		{Name: "Camilan & Roti", Slug: "camilan-roti", Description: "Camilan dan roti segar dari dapur Foodlab"},
+		{Name: "Minuman", Slug: "minuman", Description: "Minuman segar pendamping santap"},
+		{Name: "Paket & Hampers", Slug: "paket-hampers", Description: "Paket nasi box dan hampers untuk acara"},
 	}
 	for i := range categories {
 		if err := db.Create(&categories[i]).Error; err != nil {
@@ -48,20 +47,25 @@ func Run(db *gorm.DB) error {
 		catBySlug[c.Slug] = c
 	}
 	products := []domain.Product{
-		{CategoryID: catBySlug["electronics"].ID, Name: "Laptop Gaming", Slug: "laptop-gaming", Description: "Laptop gaming performa tinggi", Price: 15000000, Stock: 10, SKU: "ELEC-LAP-001", WeightGram: 2500, IsActive: true},
-		{CategoryID: catBySlug["electronics"].ID, Name: "Smartphone", Slug: "smartphone", Description: "Smartphone layar AMOLED", Price: 5000000, Stock: 25, SKU: "ELEC-SMP-001", WeightGram: 200, IsActive: true},
-		{CategoryID: catBySlug["electronics"].ID, Name: "Headphone Wireless", Slug: "headphone-wireless", Description: "Headphone wireless noise cancelling", Price: 850000, Stock: 50, SKU: "ELEC-HDP-001", WeightGram: 300, IsActive: true},
-		{CategoryID: catBySlug["fashion"].ID, Name: "Kaos Polos", Slug: "kaos-polos", Description: "Kaos polos katun premium", Price: 120000, Stock: 100, SKU: "FSHN-KOS-001", WeightGram: 200, IsActive: true},
-		{CategoryID: catBySlug["fashion"].ID, Name: "Sepatu Sneakers", Slug: "sepatu-sneakers", Description: "Sepatu sneakers nyaman", Price: 750000, Stock: 40, SKU: "FSHN-SPT-001", WeightGram: 800, IsActive: true},
-		{CategoryID: catBySlug["home-living"].ID, Name: "Meja Kerja", Slug: "meja-kerja", Description: "Meja kerja kayu minimalis", Price: 1200000, Stock: 15, SKU: "HOME-MEJ-001", WeightGram: 15000, IsActive: true},
-		{CategoryID: catBySlug["home-living"].ID, Name: "Lampu LED", Slug: "lampu-led", Description: "Lampu LED hemat energi", Price: 150000, Stock: 80, SKU: "HOME-LMP-001", WeightGram: 500, IsActive: true},
-		{CategoryID: catBySlug["books"].ID, Name: "Buku Pemrograman Go", Slug: "buku-pemrograman-go", Description: "Buku belajar bahasa Go", Price: 250000, Stock: 60, SKU: "BOOK-GO-001", WeightGram: 600, IsActive: true},
+		{CategoryID: catBySlug["makanan-utama"].ID, Name: "Nasi Goreng Slaras", Slug: "nasi-goreng-slaras", Description: "Nasi goreng spesial Slaras dengan telur, ayam suwir, dan kerupuk", Price: 25000, Stock: 50, SKU: "SNF-NAS-001", WeightGram: 400, IsActive: true},
+		{CategoryID: catBySlug["makanan-utama"].ID, Name: "Ayam Geprek Sambal Matah", Slug: "ayam-geprek-sambal-matah", Description: "Ayam geprek renyah dengan sambal matah segar khas Bali", Price: 18000, Stock: 60, SKU: "SNF-AYM-001", WeightGram: 300, IsActive: true},
+		{CategoryID: catBySlug["makanan-utama"].ID, Name: "Rendang Sapi Slaras", Slug: "rendang-sapi-slaras", Description: "Rendang sapi dimasak perlahan hingga bumbu meresap", Price: 35000, Stock: 30, SKU: "SNF-RND-001", WeightGram: 350, IsActive: true},
+		{CategoryID: catBySlug["makanan-utama"].ID, Name: "Nasi Liwet Solo", Slug: "nasi-liwet-solo", Description: "Nasi liwet gurih santan dengan ayam suwir dan labu siam", Price: 22000, Stock: 40, SKU: "SNF-LIW-001", WeightGram: 400, IsActive: true},
+		{CategoryID: catBySlug["makanan-utama"].ID, Name: "Mie Ayam Slaras", Slug: "mie-ayam-slaras", Description: "Mie ayam dengan topping ayam kecap dan bakso", Price: 15000, Stock: 70, SKU: "SNF-MIE-001", WeightGram: 350, IsActive: true},
+		{CategoryID: catBySlug["camilan-roti"].ID, Name: "Roti Bakar Coklat Keju", Slug: "roti-bakar-coklat-keju", Description: "Roti bakar lumer coklat dan keju, dipanggang renyah", Price: 12000, Stock: 80, SKU: "SNF-ROT-001", WeightGram: 150, IsActive: true},
+		{CategoryID: catBySlug["camilan-roti"].ID, Name: "Pisang Goreng Gula Aren", Slug: "pisang-goreng-gula-aren", Description: "Pisang goreng manis gula aren dengan taburan keju", Price: 10000, Stock: 90, SKU: "SNF-PSG-001", WeightGram: 200, IsActive: true},
+		{CategoryID: catBySlug["camilan-roti"].ID, Name: "Risoles Ragout Ayam", Slug: "risoles-ragout-ayam", Description: "Risoles isi ragout ayam creamy, kulit renyah", Price: 8000, Stock: 100, SKU: "SNF-RIS-001", WeightGram: 100, IsActive: true},
+		{CategoryID: catBySlug["minuman"].ID, Name: "Es Teh Melati", Slug: "es-teh-melati", Description: "Teh melati diseduh segar, manisnya pas", Price: 6000, Stock: 120, SKU: "SNF-TEH-001", WeightGram: 300, IsActive: true},
+		{CategoryID: catBySlug["minuman"].ID, Name: "Kopi Susu Gula Aren", Slug: "kopi-susu-gula-aren", Description: "Es kopi susu dengan gula aren asli, creamy", Price: 12000, Stock: 100, SKU: "SNF-KOP-001", WeightGram: 250, IsActive: true},
+		{CategoryID: catBySlug["minuman"].ID, Name: "Es Jeruk Peras", Slug: "es-jeruk-peras", Description: "Jeruk peras asli dengan es batu, segar", Price: 7000, Stock: 110, SKU: "SNF-JER-001", WeightGram: 300, IsActive: true},
+		{CategoryID: catBySlug["paket-hampers"].ID, Name: "Paket Nasi Box Slaras (isi 10)", Slug: "paket-nasi-box-slaras", Description: "Nasi box isi 10 porsi lengkap untuk rapat dan acara", Price: 250000, Stock: 20, SKU: "SNF-PKT-001", WeightGram: 4000, IsActive: true},
 	}
+	// Harga modal (HPP) default: 60% dari harga jual.
 	for i := range products {
+		products[i].CostPrice = products[i].Price * 60 / 100
 		if err := db.Create(&products[i]).Error; err != nil {
 			return err
 		}
 	}
 	return nil
 }
-

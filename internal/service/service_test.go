@@ -356,3 +356,345 @@ func TestAddItemConcurrentStockLimit(t *testing.T) {
 		t.Fatalf("quantity = %d, want 10", cart.Items[0].Quantity)
 	}
 }
+
+func TestAddItemAfterRemoveRevivesWithFreshQty(t *testing.T) {
+	cfg := setupTestDB(t)
+	svc := newTestServices(t, cfg)
+	p := mustCategoryProduct(t, svc, 100, 100000)
+	user, err := svc.auth.Register("Revive", "revive@example.com", "Password123", "081234567890")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	item, err := svc.cart.AddItem(user.ID, p.ID, 1)
+	if err != nil {
+		t.Fatalf("add pertama: %v", err)
+	}
+	if item.Quantity != 1 {
+		t.Fatalf("qty pertama = %d, want 1", item.Quantity)
+	}
+
+	// Hapus item (soft-delete) lalu tambah lagi: qty harus 1, bukan 1+1.
+	if err := svc.cart.RemoveItem(user.ID, item.ID); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	item, err = svc.cart.AddItem(user.ID, p.ID, 1)
+	if err != nil {
+		t.Fatalf("add sesudah hapus: %v", err)
+	}
+	if item.Quantity != 1 {
+		t.Fatalf("qty sesudah hapus+tambah = %d, want 1 (baris soft-deleted bangkit dengan qty lama)", item.Quantity)
+	}
+
+	// ClearCart (jalur checkout) lalu tambah lagi qty 2: harus 2, bukan 1+2.
+	if err := svc.cart.ClearCart(user.ID); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	item, err = svc.cart.AddItem(user.ID, p.ID, 2)
+	if err != nil {
+		t.Fatalf("add sesudah clear: %v", err)
+	}
+	if item.Quantity != 2 {
+		t.Fatalf("qty sesudah clear+tambah = %d, want 2", item.Quantity)
+	}
+}
+
+func TestGuestCheckoutDineIn(t *testing.T) {
+	cfg := setupTestDB(t)
+	svc := newTestServices(t, cfg)
+	p := mustCategoryProduct(t, svc, 10, 25000)
+
+	order, err := svc.order.GuestCheckout(GuestCheckoutInput{
+		Items: []GuestCheckoutItem{
+			{ProductID: p.ID, Quantity: 2, Notes: "less sugar"},
+		},
+		CustomerName:  "Tamu DineIn",
+		CustomerPhone: "",
+		OrderType:     "dine_in",
+		TableNumber:   "Meja 04",
+		PaymentMethod: "qris",
+	})
+	if err != nil {
+		t.Fatalf("guest checkout dine_in: %v", err)
+	}
+	if order.UserID != nil {
+		t.Fatalf("UserID tamu harus nil, dapat %v", order.UserID)
+	}
+	if order.OrderType != "dine_in" || order.TableNumber != "Meja 04" {
+		t.Fatalf("order_type/table = %s/%s, want dine_in/Meja 04", order.OrderType, order.TableNumber)
+	}
+	if order.Status != domain.OrderPending {
+		t.Fatalf("status = %s, want pending", order.Status)
+	}
+	if order.ShippingCost != 0 {
+		t.Fatalf("shipping dine_in = %d, want 0", order.ShippingCost)
+	}
+	if order.Total != 50000 {
+		t.Fatalf("total = %d, want 50000", order.Total)
+	}
+	if len(order.Items) != 1 || order.Items[0].Notes != "less sugar" {
+		t.Fatalf("notes item tidak tersimpan: %+v", order.Items)
+	}
+	if order.Payment == nil || order.Payment.QRString == "" {
+		t.Fatalf("payment QRIS harus punya qr_string: %+v", order.Payment)
+	}
+	if order.Payment.PaymentURL == "" {
+		t.Fatalf("payment_url kosong")
+	}
+	var after domain.Product
+	if err := testDB.First(&after, "id = ?", p.ID).Error; err != nil {
+		t.Fatalf("baca produk: %v", err)
+	}
+	if after.Stock != 8 {
+		t.Fatalf("stok sesudah checkout = %d, want 8", after.Stock)
+	}
+	// Track publik harus menemukan order yang sama.
+	tracked, err := svc.order.TrackOrder(order.OrderNumber)
+	if err != nil {
+		t.Fatalf("track: %v", err)
+	}
+	if tracked.ID != order.ID || tracked.Status != domain.OrderPending {
+		t.Fatalf("track mengembalikan order yang salah: %s %s", tracked.OrderNumber, tracked.Status)
+	}
+}
+
+func TestGuestCheckoutTakeaway(t *testing.T) {
+	cfg := setupTestDB(t)
+	svc := newTestServices(t, cfg)
+	p := mustCategoryProduct(t, svc, 5, 12000)
+
+	order, err := svc.order.GuestCheckout(GuestCheckoutInput{
+		Items: []GuestCheckoutItem{
+			{ProductID: p.ID, Quantity: 1},
+		},
+		CustomerName:  "Tamu Bungkus",
+		CustomerPhone: "081234567890",
+		OrderType:     "takeaway",
+		PaymentMethod: "va",
+	})
+	if err != nil {
+		t.Fatalf("guest checkout takeaway: %v", err)
+	}
+	if order.UserID != nil || order.OrderType != "takeaway" {
+		t.Fatalf("order tamu salah: user=%v type=%s", order.UserID, order.OrderType)
+	}
+	if order.ShippingCost != 0 || order.Total != 12000 {
+		t.Fatalf("shipping/total = %d/%d, want 0/12000", order.ShippingCost, order.Total)
+	}
+	if order.Payment == nil || order.Payment.Method != "va" || order.Payment.PaymentURL == "" {
+		t.Fatalf("payment VA tidak lengkap: %+v", order.Payment)
+	}
+	if order.Payment.QRString != "" {
+		t.Fatalf("payment VA tidak boleh punya qr_string: %s", order.Payment.QRString)
+	}
+}
+
+func TestGuestCheckoutValidation(t *testing.T) {
+	cfg := setupTestDB(t)
+	svc := newTestServices(t, cfg)
+	p := mustCategoryProduct(t, svc, 3, 10000)
+
+	cases := []struct {
+		name string
+		in   GuestCheckoutInput
+	}{
+		{"items kosong", GuestCheckoutInput{CustomerName: "A", OrderType: "takeaway", CustomerPhone: "081", PaymentMethod: "qris"}},
+		{"nama kosong", GuestCheckoutInput{Items: []GuestCheckoutItem{{ProductID: p.ID, Quantity: 1}}, OrderType: "takeaway", CustomerPhone: "081", PaymentMethod: "qris"}},
+		{"order_type salah", GuestCheckoutInput{Items: []GuestCheckoutItem{{ProductID: p.ID, Quantity: 1}}, CustomerName: "A", CustomerPhone: "081", OrderType: "dine_out", PaymentMethod: "qris"}},
+		{"dine_in tanpa meja", GuestCheckoutInput{Items: []GuestCheckoutItem{{ProductID: p.ID, Quantity: 1}}, CustomerName: "A", OrderType: "dine_in", PaymentMethod: "qris"}},
+		{"takeaway tanpa phone", GuestCheckoutInput{Items: []GuestCheckoutItem{{ProductID: p.ID, Quantity: 1}}, CustomerName: "A", OrderType: "takeaway", PaymentMethod: "qris"}},
+		{"delivery tanpa alamat", GuestCheckoutInput{Items: []GuestCheckoutItem{{ProductID: p.ID, Quantity: 1}}, CustomerName: "A", CustomerPhone: "081", OrderType: "delivery", PaymentMethod: "qris"}},
+		{"payment_method salah", GuestCheckoutInput{Items: []GuestCheckoutItem{{ProductID: p.ID, Quantity: 1}}, CustomerName: "A", CustomerPhone: "081", OrderType: "takeaway", PaymentMethod: "cash"}},
+		{"stok kurang", GuestCheckoutInput{Items: []GuestCheckoutItem{{ProductID: p.ID, Quantity: 99}}, CustomerName: "A", CustomerPhone: "081", OrderType: "takeaway", PaymentMethod: "qris"}},
+		{"qty nol", GuestCheckoutInput{Items: []GuestCheckoutItem{{ProductID: p.ID, Quantity: 0}}, CustomerName: "A", CustomerPhone: "081", OrderType: "takeaway", PaymentMethod: "qris"}},
+	}
+	for _, tc := range cases {
+		if _, err := svc.order.GuestCheckout(tc.in); err == nil {
+			t.Errorf("%s: harus error, dapat sukses", tc.name)
+		}
+	}
+	// Stok harus utuh sesudah semua penolakan (transaksi rollback).
+	var after domain.Product
+	if err := testDB.First(&after, "id = ?", p.ID).Error; err != nil {
+		t.Fatalf("baca produk: %v", err)
+	}
+	if after.Stock != 3 {
+		t.Fatalf("stok sesudah validasi gagal = %d, want 3", after.Stock)
+	}
+	// Track nomor yang tidak ada harus error.
+	if _, err := svc.order.TrackOrder("ORD-20990101-ZZZZZZ"); err == nil {
+		t.Errorf("track nomor palsu harus error")
+	}
+}
+
+func TestProfitAnalytics(t *testing.T) {
+	cfg := setupTestDB(t)
+	svc := newTestServices(t, cfg)
+	analytics := NewAnalyticsService(testDB)
+
+	cat, err := svc.product.CreateCategory(CategoryInput{Name: "Makanan", Description: "makanan"})
+	if err != nil {
+		t.Fatalf("create category: %v", err)
+	}
+	mkProduct := func(name, sku string, price, cost int64, stock int) *domain.Product {
+		t.Helper()
+		p, err := svc.product.CreateProduct(ProductInput{
+			CategoryID: cat.ID, Name: name, Price: price, CostPrice: cost,
+			Stock: stock, SKU: sku, WeightGram: 200, IsActive: true,
+		})
+		if err != nil {
+			t.Fatalf("create product %s: %v", name, err)
+		}
+		return p
+	}
+	prodA := mkProduct("Nasi Goreng", "TST-A-001", 10000, 6000, 100)
+	prodB := mkProduct("Kopi Susu", "TST-B-001", 20000, 12000, 100)
+
+	setStatus := func(orderID string, st domain.OrderStatus) {
+		t.Helper()
+		if err := testDB.Model(&domain.Order{}).Where("id = ?", orderID).Update("status", st).Error; err != nil {
+			t.Fatalf("set status: %v", err)
+		}
+	}
+
+	// Order1: dine-in qris 2xA = 20000, PAID.
+	o1, err := svc.order.GuestCheckout(GuestCheckoutInput{
+		Items: []GuestCheckoutItem{{ProductID: prodA.ID, Quantity: 2}},
+		CustomerName: "Andi", OrderType: "dine_in", TableNumber: "Meja 04", PaymentMethod: "qris",
+	})
+	if err != nil {
+		t.Fatalf("guest checkout 1: %v", err)
+	}
+	setStatus(o1.ID.String(), domain.OrderPaid)
+	// Order2: takeaway va 1xB = 20000, PAID.
+	o2, err := svc.order.GuestCheckout(GuestCheckoutInput{
+		Items: []GuestCheckoutItem{{ProductID: prodB.ID, Quantity: 1}},
+		CustomerName: "Budi", CustomerPhone: "081", OrderType: "takeaway", PaymentMethod: "va",
+	})
+	if err != nil {
+		t.Fatalf("guest checkout 2: %v", err)
+	}
+	setStatus(o2.ID.String(), domain.OrderPaid)
+	// Order3: delivery qris 1xA = 10000 + ongkir 10000 = 20000, PENDING.
+	o3, err := svc.order.GuestCheckout(GuestCheckoutInput{
+		Items: []GuestCheckoutItem{{ProductID: prodA.ID, Quantity: 1}},
+		CustomerName: "Cici", CustomerPhone: "081", OrderType: "delivery", PaymentMethod: "qris",
+		DeliveryAddress: &GuestDeliveryAddress{Street: "Jl. A 1", City: "Yogyakarta", Province: "DIY", PostalCode: "55165"},
+	})
+	if err != nil {
+		t.Fatalf("guest checkout 3: %v", err)
+	}
+	_ = o3
+	// Order4: dine-in qris 1xB = 20000, CANCELLED.
+	o4, err := svc.order.GuestCheckout(GuestCheckoutInput{
+		Items: []GuestCheckoutItem{{ProductID: prodB.ID, Quantity: 1}},
+		CustomerName: "Dedi", OrderType: "dine_in", TableNumber: "Meja 02", PaymentMethod: "qris",
+	})
+	if err != nil {
+		t.Fatalf("guest checkout 4: %v", err)
+	}
+	setStatus(o4.ID.String(), domain.OrderCancelled)
+
+	res, err := analytics.GetProfitAnalytics("all", "", "")
+	if err != nil {
+		t.Fatalf("analytics all: %v", err)
+	}
+	s := res.Summary
+	if s.GrossRevenue != 40000 {
+		t.Errorf("gross_revenue = %d, want 40000", s.GrossRevenue)
+	}
+	if s.TotalCOGS != 24000 {
+		t.Errorf("total_cogs = %d, want 24000", s.TotalCOGS)
+	}
+	if s.NetProfit != 16000 {
+		t.Errorf("net_profit = %d, want 16000", s.NetProfit)
+	}
+	if s.ProfitMarginPercent != 40 {
+		t.Errorf("margin = %v, want 40", s.ProfitMarginPercent)
+	}
+	if s.TotalPaidOrders != 2 {
+		t.Errorf("total_paid_orders = %d, want 2", s.TotalPaidOrders)
+	}
+	if s.AverageOrderValue != 20000 {
+		t.Errorf("aov = %d, want 20000", s.AverageOrderValue)
+	}
+	if s.PendingOrCancelledCount != 2 {
+		t.Errorf("pending_or_cancelled = %d, want 2", s.PendingOrCancelledCount)
+	}
+	if len(res.DailySeries) != 1 {
+		t.Fatalf("daily_series len = %d, want 1", len(res.DailySeries))
+	}
+	d := res.DailySeries[0]
+	if d.Revenue != 40000 || d.Profit != 16000 || d.OrdersCount != 2 {
+		t.Errorf("daily = %+v, want revenue 40000 profit 16000 orders 2", d)
+	}
+	byType := map[string]OrderTypeBreakdown{}
+	for _, b := range res.ByOrderType {
+		byType[b.OrderType] = b
+	}
+	if byType["dine_in"].Revenue != 20000 || byType["dine_in"].OrdersCount != 1 {
+		t.Errorf("dine_in breakdown = %+v, want 20000/1", byType["dine_in"])
+	}
+	if byType["takeaway"].Revenue != 20000 || byType["takeaway"].OrdersCount != 1 {
+		t.Errorf("takeaway breakdown = %+v, want 20000/1", byType["takeaway"])
+	}
+	if byType["delivery"].Revenue != 0 || byType["delivery"].OrdersCount != 0 {
+		t.Errorf("delivery breakdown = %+v, want 0/0 (pending tidak dihitung)", byType["delivery"])
+	}
+	byPay := map[string]PaymentBreakdown{}
+	for _, b := range res.ByPaymentMethod {
+		byPay[b.PaymentMethod] = b
+	}
+	if byPay["qris"].Revenue != 20000 || byPay["qris"].OrdersCount != 1 {
+		t.Errorf("qris breakdown = %+v, want 20000/1", byPay["qris"])
+	}
+	if byPay["va"].Revenue != 20000 || byPay["va"].OrdersCount != 1 {
+		t.Errorf("va breakdown = %+v, want 20000/1", byPay["va"])
+	}
+	if len(res.TopProducts) != 2 {
+		t.Fatalf("top_products len = %d, want 2", len(res.TopProducts))
+	}
+	top0 := res.TopProducts[0]
+	if top0.ProductName != "Nasi Goreng" || top0.QuantitySold != 2 || top0.Revenue != 20000 || top0.Profit != 8000 {
+		t.Errorf("top[0] = %+v, want Nasi Goreng qty 2 rev 20000 profit 8000", top0)
+	}
+	top1 := res.TopProducts[1]
+	if top1.ProductName != "Kopi Susu" || top1.QuantitySold != 1 || top1.Revenue != 20000 || top1.Profit != 8000 {
+		t.Errorf("top[1] = %+v, want Kopi Susu qty 1 rev 20000 profit 8000", top1)
+	}
+	if len(res.RecentTransactions) != 4 {
+		t.Errorf("recent len = %d, want 4", len(res.RecentTransactions))
+	}
+	if len(res.RecentTransactions) > 0 && res.RecentTransactions[0].OrderNumber != o4.OrderNumber {
+		t.Errorf("recent[0] = %s, want %s (terbaru dulu)", res.RecentTransactions[0].OrderNumber, o4.OrderNumber)
+	}
+
+	// Period "today" harus sama (semua order dibuat hari ini).
+	resToday, err := analytics.GetProfitAnalytics("today", "", "")
+	if err != nil {
+		t.Fatalf("analytics today: %v", err)
+	}
+	if resToday.Summary.GrossRevenue != 40000 || len(resToday.DailySeries) != 1 {
+		t.Errorf("today: revenue %d series %d, want 40000/1", resToday.Summary.GrossRevenue, len(resToday.DailySeries))
+	}
+
+	// Rentang tanggal yang tidak berisi order: semua nol.
+	resEmpty, err := analytics.GetProfitAnalytics("", "2020-01-01", "2020-01-02")
+	if err != nil {
+		t.Fatalf("analytics range kosong: %v", err)
+	}
+	if resEmpty.Summary.GrossRevenue != 0 || resEmpty.Summary.TotalPaidOrders != 0 || len(resEmpty.DailySeries) != 2 {
+		t.Errorf("range kosong: %+v series %d, want 0/0/2 hari", resEmpty.Summary, len(resEmpty.DailySeries))
+	}
+
+	// Validasi input.
+	if _, err := analytics.GetProfitAnalytics("bogus", "", ""); err == nil {
+		t.Errorf("period bogus harus error")
+	}
+	if _, err := analytics.GetProfitAnalytics("", "2020-01-05", "2020-01-01"); err == nil {
+		t.Errorf("end sebelum start harus error")
+	}
+	if _, err := analytics.GetProfitAnalytics("", "01-01-2020", "2020-01-02"); err == nil {
+		t.Errorf("format tanggal salah harus error")
+	}
+}

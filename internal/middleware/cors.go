@@ -10,10 +10,17 @@ import (
 // CORS enforces a strict allow-list: the Access-Control-Allow-Origin header
 // is only echoed back when the request Origin is in the configured list.
 // Origins not on the list get no CORS headers, so browsers block the call.
+// A literal "*" in the list acts as a wildcard: any Origin is echoed back
+// (dipakai untuk akses aplikasi mobile / client non-browser).
 func CORS(allowedOrigins []string) gin.HandlerFunc {
 	allowed := make(map[string]struct{}, len(allowedOrigins))
+	wildcard := false
 	for _, o := range allowedOrigins {
 		o = strings.TrimSpace(o)
+		if o == "*" {
+			wildcard = true
+			continue
+		}
 		if o != "" {
 			allowed[o] = struct{}{}
 		}
@@ -24,7 +31,7 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		if _, ok := allowed[origin]; !ok {
+		if _, ok := allowed[origin]; !ok && !wildcard {
 			// Not allow-listed: no CORS headers at all.
 			if c.Request.Method == http.MethodOptions {
 				c.AbortWithStatus(http.StatusForbidden)

@@ -26,7 +26,7 @@ type Payment struct {
 	Amount        int64          `gorm:"not null" json:"amount"`
 	Status        PaymentStatus  `gorm:"size:20;not null;default:pending;index" json:"status"`
 	PaymentURL    string         `gorm:"size:500" json:"payment_url,omitempty"`
-	QRString      string         `gorm:"size:500" json:"qr_string,omitempty"`
+	QRString      string         `gorm:"size:500" json:"qr_string"`
 	RawPayload    string         `gorm:"type:text" json:"-"`
 	ExpiresAt     *time.Time     `json:"expires_at,omitempty"`
 	PaidAt        *time.Time     `json:"paid_at,omitempty"`

@@ -65,7 +65,28 @@ func (r *CartRepository) AddOrUpdateItem(cartID, productID uuid.UUID, qty int, p
 // yang berkonflik dikunci database sampai transaksi pertama commit; increment
 // dievaluasi dari nilai terbaru di dalam database, bukan dari nilai yang dibaca
 // aplikasi sebelumnya. Mengembalikan item sesudah upsert.
+//
+// Baris soft-deleted (dari ClearItems/RemoveItem) ditangani dulu secara
+// eksplisit: ia bangkit dengan kuantitas BARU, bukan lama+baru. Kalau revive
+// dilewatkan ke ON CONFLICT ("quantity + ?"), tambah ×1 sesudah checkout
+// menghasilkan qty 2. UPDATE revive mengunci baris, jadi dua transaksi
+// bersamaan aman: yang kedua tak lagi menemukan baris terhapus dan jatuh
+// ke upsert biasa (increment pada baris yang sudah hidup).
 func (r *CartRepository) UpsertItemAtomic(cartID, productID uuid.UUID, qty int, price int64) (*domain.CartItem, error) {
+	res := r.db.Unscoped().Model(&domain.CartItem{}).
+		Where("cart_id = ? AND product_id = ? AND deleted_at IS NOT NULL", cartID, productID).
+		Updates(map[string]interface{}{
+			"quantity":   qty,
+			"price":      price,
+			"updated_at": time.Now(),
+			"deleted_at": nil,
+		})
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected > 0 {
+		return r.FindItem(cartID, productID)
+	}
 	item := &domain.CartItem{CartID: cartID, ProductID: productID, Quantity: qty, Price: price}
 	err := r.db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "cart_id"}, {Name: "product_id"}},
@@ -76,6 +97,8 @@ func (r *CartRepository) UpsertItemAtomic(cartID, productID uuid.UUID, qty int, 
 			// Baris lama bisa berstatus soft-deleted (ClearItems memakai
 			// soft delete GORM); upsert harus membangunkannya kembali,
 			// kalau tidak FindItem (yang memfilter deleted_at) tak menemukannya.
+			// (Jalur revive di atas sudah menangani kasus itu lebih dulu;
+			// ini hanya pengaman bila baris terhapus lolos dari sana.)
 			"deleted_at": nil,
 		}),
 	}).Create(item).Error

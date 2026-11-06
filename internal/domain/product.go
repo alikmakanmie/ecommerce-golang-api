@@ -34,6 +34,7 @@ type Product struct {
 	Slug        string         `gorm:"size:170;uniqueIndex;not null" json:"slug"`
 	Description string         `gorm:"type:text" json:"description"`
 	Price       int64          `gorm:"not null;check:price>=0" json:"price"`
+	CostPrice   int64          `gorm:"not null;default:0;check:cost_price>=0" json:"cost_price"`
 	Stock       int            `gorm:"not null;default:0;check:stock>=0" json:"stock"`
 	SKU         string         `gorm:"size:50;uniqueIndex;not null" json:"sku"`
 	ImageURL    string         `gorm:"size:255" json:"image_url"`

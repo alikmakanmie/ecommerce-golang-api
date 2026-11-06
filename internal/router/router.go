@@ -31,6 +31,7 @@ func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	cartSvc := service.NewCartService(db, cartRepo, productRepo)
 	orderSvc := service.NewOrderService(db, orderRepo, cartRepo, productRepo, paymentRepo, addressRepo, gateway, cfg)
 	paymentSvc := service.NewPaymentService(db, paymentRepo, orderRepo, productRepo)
+	analyticsSvc := service.NewAnalyticsService(db)
 
 	authH := handler.NewAuthHandler(authSvc)
 	userH := handler.NewUserHandler(userSvc)
@@ -39,6 +40,7 @@ func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	cartH := handler.NewCartHandler(cartSvc)
 	orderH := handler.NewOrderHandler(orderSvc)
 	paymentH := handler.NewPaymentHandler(paymentSvc, cfg.WebhookSecret)
+	analyticsH := handler.NewAnalyticsHandler(analyticsSvc)
 
 	// 20 req/detik per IP untuk seluruh API, 5 login/menit per IP.
 	publicLimiter := middleware.NewRateLimiter(20, 40)
@@ -62,6 +64,8 @@ func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 
 	// Public
 	v1.POST("/auth/register", authH.Register)
+	v1.POST("/orders/guest-checkout", orderH.GuestCheckout)
+	v1.GET("/orders/track/:order_number", orderH.TrackOrder)
 	v1.POST("/auth/login", loginLimiter.Limit("terlalu banyak percobaan login, coba lagi nanti"), authH.Login)
 	v1.POST("/auth/refresh", authH.Refresh)
 	v1.GET("/products", productH.ListProducts)
@@ -102,6 +106,7 @@ func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	admin.DELETE("/categories/:id", categoryH.DeleteCategory)
 	admin.GET("/admin/orders", orderH.ListAllOrders)
 	admin.PATCH("/admin/orders/:id/status", orderH.UpdateOrderStatus)
+	admin.GET("/admin/analytics/profit", analyticsH.GetProfit)
 
 	return r
 }

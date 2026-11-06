@@ -22,6 +22,7 @@ type ProductRequest struct {
 	Slug        string `json:"slug" binding:"max=170"`
 	Description string `json:"description"`
 	Price       int64  `json:"price" binding:"min=0"`
+	CostPrice   int64  `json:"cost_price" binding:"min=0"`
 	Stock       int    `json:"stock" binding:"min=0"`
 	SKU         string `json:"sku" binding:"required,max=50"`
 	ImageURL    string `json:"image_url"`
@@ -75,7 +76,7 @@ func (h *ProductHandler) CreateProduct(c *gin.Context) {
 	}
 	p, err := h.svc.CreateProduct(service.ProductInput{
 		CategoryID: catID, Name: req.Name, Slug: req.Slug, Description: req.Description,
-		Price: req.Price, Stock: req.Stock, SKU: req.SKU, ImageURL: req.ImageURL,
+		Price: req.Price, CostPrice: req.CostPrice, Stock: req.Stock, SKU: req.SKU, ImageURL: req.ImageURL,
 		WeightGram: req.WeightGram, IsActive: isActive,
 	})
 	if err != nil {
@@ -124,7 +125,7 @@ func (h *ProductHandler) UpdateProduct(c *gin.Context) {
 	}
 	p, err := h.svc.UpdateProduct(id, service.ProductInput{
 		CategoryID: catID, Name: name, Slug: req.Slug, Description: req.Description,
-		Price: req.Price, Stock: req.Stock, SKU: sku, ImageURL: req.ImageURL,
+		Price: req.Price, CostPrice: req.CostPrice, Stock: req.Stock, SKU: sku, ImageURL: req.ImageURL,
 		WeightGram: req.WeightGram, IsActive: isActive,
 	})
 	if err != nil {

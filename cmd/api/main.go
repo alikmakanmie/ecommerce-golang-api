@@ -30,6 +30,9 @@ func main() {
 	if err := database.AutoMigrate(db); err != nil {
 		log.Fatalf("migrate error: %v", err)
 	}
+	if err := database.BackfillCostPrice(db); err != nil {
+		log.Fatalf("backfill cost_price error: %v", err)
+	}
 	log.Println("database connected & migrated")
 	if cfg.SeedDB {
 		if err := seeder.Run(db); err != nil {

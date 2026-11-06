@@ -74,3 +74,13 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.Payment{},
 	)
 }
+
+// BackfillCostPrice mengisi harga modal produk lama yang belum punya
+// cost_price (0) dengan 60% dari harga jual. Idempotent: hanya menyentuh
+// baris yang cost_price-nya masih 0. Dipanggil sekali tiap startup
+// sesudah AutoMigrate, jadi produk lama langsung terhitung profitnya.
+func BackfillCostPrice(db *gorm.DB) error {
+	return db.Model(&domain.Product{}).
+		Where("cost_price = 0").
+		UpdateColumn("cost_price", gorm.Expr("price * 60 / 100")).Error
+}

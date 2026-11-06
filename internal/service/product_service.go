@@ -24,6 +24,7 @@ type ProductInput struct {
 	Slug        string
 	Description string
 	Price       int64
+	CostPrice   int64
 	Stock       int
 	SKU         string
 	ImageURL    string
@@ -96,6 +97,14 @@ func (s *ProductService) CreateProduct(in ProductInput) (*domain.Product, error)
 	if in.Price < 0 {
 		return nil, errors.New("harga tidak boleh negatif")
 	}
+	if in.CostPrice < 0 {
+		return nil, errors.New("harga modal tidak boleh negatif")
+	}
+	// Harga modal default: 60% dari harga jual bila tidak diisi.
+	costPrice := in.CostPrice
+	if costPrice <= 0 {
+		costPrice = in.Price * 60 / 100
+	}
 	if in.Stock < 0 {
 		return nil, errors.New("stok tidak boleh negatif")
 	}
@@ -125,6 +134,7 @@ func (s *ProductService) CreateProduct(in ProductInput) (*domain.Product, error)
 		Slug:        slug,
 		Description: in.Description,
 		Price:       in.Price,
+		CostPrice:   costPrice,
 		Stock:       in.Stock,
 		SKU:         strings.TrimSpace(in.SKU),
 		ImageURL:    in.ImageURL,
@@ -163,6 +173,10 @@ func (s *ProductService) UpdateProduct(id uuid.UUID, in ProductInput) (*domain.P
 	}
 	if in.Price >= 0 {
 		p.Price = in.Price
+	}
+	// CostPrice > 0 berarti admin mengisi harga modal baru; 0 = tidak diubah.
+	if in.CostPrice > 0 {
+		p.CostPrice = in.CostPrice
 	}
 	if in.Stock >= 0 {
 		p.Stock = in.Stock

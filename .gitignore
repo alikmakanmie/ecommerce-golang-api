@@ -21,3 +21,18 @@ keepalive.out
 # Foto produk: asli (master) + salinan web (di-sync ke VPS)
 uploads/
 uploads-original/
+
+# Frontend React (subfolder ecommerce-web/)
+ecommerce-web/node_modules/
+ecommerce-web/dist/
+ecommerce-web/test-results/
+ecommerce-web/.env
+ecommerce-web/.env.local
+
+# Aplikasi mobile Flutter (subfolder ecommerce-mobile/, menyusul)
+ecommerce-mobile/build/
+ecommerce-mobile/.dart_tool/
+ecommerce-mobile/.flutter-plugins
+ecommerce-mobile/.flutter-plugins-dependencies
+ecommerce-mobile/android/.gradle/
+ecommerce-mobile/android/app/build/

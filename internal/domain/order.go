@@ -20,8 +20,12 @@ const (
 
 type Order struct {
 	ID              uuid.UUID      `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID          uuid.UUID      `gorm:"type:uuid;not null;index" json:"user_id"`
+	UserID          *uuid.UUID     `gorm:"type:uuid;index" json:"user_id,omitempty"`
 	OrderNumber     string         `gorm:"size:30;uniqueIndex;not null" json:"order_number"`
+	CustomerName    string         `gorm:"size:100;not null" json:"customer_name"`
+	CustomerPhone   string         `gorm:"size:20" json:"customer_phone"`
+	OrderType       string         `gorm:"size:20;not null;default:delivery" json:"order_type"`
+	TableNumber     string         `gorm:"size:20" json:"table_number,omitempty"`
 	AddressID       *uuid.UUID     `gorm:"type:uuid;index" json:"address_id,omitempty"`
 	Address         *Address       `gorm:"foreignKey:AddressID" json:"shipping_address,omitempty"`
 	ShippingName    string         `gorm:"size:100;not null" json:"shipping_name"`
@@ -74,7 +78,9 @@ type OrderItem struct {
 	ProductID   uuid.UUID      `gorm:"type:uuid;not null;index" json:"product_id"`
 	ProductName string         `gorm:"size:150;not null" json:"product_name"`
 	Price       int64          `gorm:"not null" json:"price"`
+	CostPrice   int64          `gorm:"not null;default:0" json:"cost_price"`
 	Quantity    int            `gorm:"not null;check:quantity>0" json:"quantity"`
+	Notes       string         `gorm:"size:200" json:"notes,omitempty"`
 	Subtotal    int64          `gorm:"not null" json:"subtotal"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`

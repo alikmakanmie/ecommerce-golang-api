@@ -128,8 +128,7 @@ func (h *OrderHandler) CancelOrder(c *gin.Context) {
 	utils.Success(c, http.StatusOK, "order dibatalkan", order)
 }
 
-func (h *OrderHandler) UpdateOrderStatus(c *gin.Context) {
-	orderID, err := uuid.Parse(c.Param("id"))
+func (h *OrderHandler) UpdateOrderStatus(c *gin.Context) {	orderID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		utils.Error(c, http.StatusBadRequest, "id order tidak valid")
 		return
@@ -145,4 +144,49 @@ func (h *OrderHandler) UpdateOrderStatus(c *gin.Context) {
 		return
 	}
 	utils.Success(c, http.StatusOK, "status order diperbarui", order)
+}
+
+type GuestCheckoutRequest struct {
+	Items           []service.GuestCheckoutItem   `json:"items" binding:"required,min=1"`
+	CustomerName    string                        `json:"customer_name" binding:"required"`
+	CustomerPhone   string                        `json:"customer_phone"`
+	OrderType       string                        `json:"order_type" binding:"required"`
+	TableNumber     string                        `json:"table_number"`
+	PaymentMethod   string                        `json:"payment_method" binding:"required"`
+	Notes           string                        `json:"notes"`
+	DeliveryAddress *service.GuestDeliveryAddress `json:"delivery_address"`
+}
+
+// GuestCheckout adalah endpoint publik (tanpa JWT) untuk tamu.
+func (h *OrderHandler) GuestCheckout(c *gin.Context) {
+	var req GuestCheckoutRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	order, err := h.svc.GuestCheckout(service.GuestCheckoutInput{
+		Items:           req.Items,
+		CustomerName:    req.CustomerName,
+		CustomerPhone:   req.CustomerPhone,
+		OrderType:       req.OrderType,
+		TableNumber:     req.TableNumber,
+		PaymentMethod:   req.PaymentMethod,
+		Notes:           req.Notes,
+		DeliveryAddress: req.DeliveryAddress,
+	})
+	if err != nil {
+		utils.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	utils.Success(c, http.StatusCreated, "guest checkout berhasil", order)
+}
+
+// TrackOrder adalah endpoint publik (tanpa JWT): lacak order via nomor order.
+func (h *OrderHandler) TrackOrder(c *gin.Context) {
+	order, err := h.svc.TrackOrder(c.Param("order_number"))
+	if err != nil {
+		utils.Error(c, http.StatusNotFound, err.Error())
+		return
+	}
+	utils.Success(c, http.StatusOK, "order ditemukan", order)
 }
