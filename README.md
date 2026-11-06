@@ -3,6 +3,10 @@
 Backend REST API e-commerce lengkap: auth JWT (access + refresh), RBAC admin/customer,
 katalog produk, keranjang, checkout, order, dan mock payment gateway (simulasi Midtrans/Xendit/QRIS).
 
+> **Frontend web (React + Tailwind BoldKit)** kini di repositori terpisah:
+> https://github.com/alikmakanmie/slaras-nusa-web
+> (Aplikasi mobile menyusul di `slaras-nusa-mobile`.)
+
 ## Tech Stack
 
 - Go 1.26, Gin, GORM
