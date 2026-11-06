@@ -8,28 +8,39 @@ import (
 )
 
 func Run(db *gorm.DB) error {
-	var count int64
-	if err := db.Model(&domain.User{}).Where("email = ?", "admin@ecommerce.local").Count(&count).Error; err != nil {
+	// Seed user per-email (idempotent): DB yang sudah ada tetap mendapat
+	// akun baru (mis. superadmin) tanpa reset database.
+	seedUsers := []struct {
+		name, email, password string
+		role                  domain.Role
+	}{
+		{"Superadmin", "superadmin@slaras.local", "SuperAdmin123!", domain.RoleSuperAdmin},
+		{"Admin", "admin@ecommerce.local", "Admin123!", domain.RoleAdmin},
+		{"Customer", "customer@ecommerce.local", "Customer123!", domain.RoleCustomer},
+	}
+	for _, su := range seedUsers {
+		var count int64
+		if err := db.Model(&domain.User{}).Where("email = ?", su.email).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			continue
+		}
+		hash, err := utils.HashPassword(su.password)
+		if err != nil {
+			return err
+		}
+		u := &domain.User{Name: su.name, Email: su.email, PasswordHash: hash, Phone: "081234567890", Role: su.role, IsActive: true}
+		if err := db.Create(u).Error; err != nil {
+			return err
+		}
+	}
+	var catCount int64
+	if err := db.Model(&domain.Category{}).Count(&catCount).Error; err != nil {
 		return err
 	}
-	if count > 0 {
+	if catCount > 0 {
 		return nil
-	}
-	adminHash, err := utils.HashPassword("Admin123!")
-	if err != nil {
-		return err
-	}
-	customerHash, err := utils.HashPassword("Customer123!")
-	if err != nil {
-		return err
-	}
-	admin := &domain.User{Name: "Admin", Email: "admin@ecommerce.local", PasswordHash: adminHash, Phone: "081234567890", Role: domain.RoleAdmin, IsActive: true}
-	customer := &domain.User{Name: "Customer", Email: "customer@ecommerce.local", PasswordHash: customerHash, Phone: "081234567891", Role: domain.RoleCustomer, IsActive: true}
-	if err := db.Create(admin).Error; err != nil {
-		return err
-	}
-	if err := db.Create(customer).Error; err != nil {
-		return err
 	}
 	categories := []domain.Category{
 		{Name: "Makanan Utama", Slug: "makanan-utama", Description: "Nasi, ayam, dan hidangan utama khas Slaras"},

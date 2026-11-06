@@ -1,6 +1,6 @@
 # E-Commerce REST API (Golang)
 
-Backend REST API e-commerce lengkap: auth JWT (access + refresh), RBAC admin/customer,
+Backend REST API e-commerce lengkap: auth JWT (access + refresh), RBAC superadmin/admin/customer,
 katalog produk, keranjang, checkout, order, dan mock payment gateway (simulasi Midtrans/Xendit/QRIS).
 
 > **Frontend web (React + Tailwind BoldKit)** kini di repositori terpisah:

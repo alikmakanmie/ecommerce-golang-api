@@ -40,6 +40,62 @@ func (r *UserRepository) Update(user *domain.User) error {
 	return r.db.Save(user).Error
 }
 
+// ListUsers mengembalikan daftar user dengan filter + paginasi (khusus superadmin).
+func (r *UserRepository) ListUsers(page, perPage int, search string, role domain.Role, isActive *bool) ([]domain.User, int64, error) {
+	q := r.db.Model(&domain.User{})
+	if search != "" {
+		like := "%" + search + "%"
+		q = q.Where("name LIKE ? OR email LIKE ?", like, like)
+	}
+	if role != "" {
+		q = q.Where("role = ?", string(role))
+	}
+	if isActive != nil {
+		q = q.Where("is_active = ?", *isActive)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var users []domain.User
+	if err := q.Order("created_at DESC").Offset((page - 1) * perPage).Limit(perPage).Find(&users).Error; err != nil {
+		return nil, 0, err
+	}
+	return users, total, nil
+}
+
+// UserStats menghitung total user per role + jumlah akun nonaktif.
+func (r *UserRepository) UserStats() (total, admins, superadmins, customers, inactive int64, err error) {
+	if err = r.db.Model(&domain.User{}).Count(&total).Error; err != nil {
+		return
+	}
+	if err = r.db.Model(&domain.User{}).Where("role = ?", string(domain.RoleAdmin)).Count(&admins).Error; err != nil {
+		return
+	}
+	if err = r.db.Model(&domain.User{}).Where("role = ?", string(domain.RoleSuperAdmin)).Count(&superadmins).Error; err != nil {
+		return
+	}
+	if err = r.db.Model(&domain.User{}).Where("role = ?", string(domain.RoleCustomer)).Count(&customers).Error; err != nil {
+		return
+	}
+	err = r.db.Model(&domain.User{}).Where("is_active = ?", false).Count(&inactive).Error
+	return
+}
+
+// RevokeAllRefreshTokens mencabut seluruh refresh token milik user (dipakai
+// saat akun dinonaktifkan agar sesi yang sedang berjalan ikut mati).
+func (r *UserRepository) RevokeAllRefreshTokens(userID uuid.UUID) error {
+	now := time.Now()
+	return r.db.Model(&domain.RefreshToken{}).
+		Where("user_id = ? AND revoked_at IS NULL", userID).
+		Update("revoked_at", now).Error
+}
+
+// Delete menghapus user (soft delete via gorm.DeletedAt).
+func (r *UserRepository) Delete(id uuid.UUID) error {
+	return r.db.Delete(&domain.User{}, "id = ?", id).Error
+}
+
 func (r *UserRepository) CreateRefreshToken(t *domain.RefreshToken) error {
 	return r.db.Create(t).Error
 }

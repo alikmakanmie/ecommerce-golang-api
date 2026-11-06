@@ -94,10 +94,10 @@ func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	auth.GET("/orders/:id", orderH.GetOrder)
 	auth.POST("/orders/:id/cancel", orderH.CancelOrder)
 
-	// Admin
+	// Admin (Pemilik Toko) + Superadmin: seluruh operasional toko.
 	admin := v1.Group("")
 	admin.Use(middleware.AuthMiddleware(cfg.JWTAccessSecret))
-	admin.Use(middleware.RequireRole(domain.RoleAdmin))
+	admin.Use(middleware.RequireRole(domain.RoleAdmin, domain.RoleSuperAdmin))
 	admin.POST("/products", productH.CreateProduct)
 	admin.PUT("/products/:id", productH.UpdateProduct)
 	admin.DELETE("/products/:id", productH.DeleteProduct)
@@ -107,6 +107,18 @@ func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	admin.GET("/admin/orders", orderH.ListAllOrders)
 	admin.PATCH("/admin/orders/:id/status", orderH.UpdateOrderStatus)
 	admin.GET("/admin/analytics/profit", analyticsH.GetProfit)
+
+	// Superadmin saja: manajemen user & akses.
+	superadminH := handler.NewSuperAdminHandler(userSvc)
+	superadmin := v1.Group("")
+	superadmin.Use(middleware.AuthMiddleware(cfg.JWTAccessSecret))
+	superadmin.Use(middleware.RequireRole(domain.RoleSuperAdmin))
+	superadmin.GET("/superadmin/users", superadminH.ListUsers)
+	superadmin.GET("/superadmin/users/stats", superadminH.GetUserStats)
+	superadmin.POST("/superadmin/users", superadminH.CreateUser)
+	superadmin.PUT("/superadmin/users/:id/role", superadminH.UpdateUserRole)
+	superadmin.PUT("/superadmin/users/:id/status", superadminH.UpdateUserStatus)
+	superadmin.DELETE("/superadmin/users/:id", superadminH.DeleteUser)
 
 	return r
 }
