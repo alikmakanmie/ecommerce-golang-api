@@ -60,13 +60,14 @@ type TopProduct struct {
 }
 
 type RecentTransaction struct {
-	OrderNumber  string             `json:"order_number"`
-	CustomerName string             `json:"customer_name"`
-	OrderType    string             `json:"order_type"`
-	TableNumber  string             `json:"table_number,omitempty"`
-	Status       domain.OrderStatus `json:"status"`
-	Total        int64              `json:"total"`
-	CreatedAt    time.Time          `json:"created_at"`
+	OrderNumber     string             `json:"order_number"`
+	CustomerName    string             `json:"customer_name"`
+	OrderType       string             `json:"order_type"`
+	TableNumber     string             `json:"table_number,omitempty"`
+	Status          domain.OrderStatus `json:"status"`
+	Total           int64              `json:"total"`
+	ProcessedByName string             `json:"processed_by_name,omitempty"`
+	CreatedAt       time.Time          `json:"created_at"`
 }
 
 type ProfitAnalytics struct {
@@ -350,7 +351,8 @@ func (s *AnalyticsService) GetProfitAnalytics(period, startDate, endDate string)
 		recent = append(recent, RecentTransaction{
 			OrderNumber: o.OrderNumber, CustomerName: o.CustomerName,
 			OrderType: o.OrderType, TableNumber: o.TableNumber,
-			Status: o.Status, Total: o.Total, CreatedAt: o.CreatedAt,
+			Status: o.Status, Total: o.Total, ProcessedByName: o.ProcessedByName,
+			CreatedAt: o.CreatedAt,
 		})
 	}
 

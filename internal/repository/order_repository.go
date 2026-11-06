@@ -9,7 +9,7 @@ import (
 
 type OrderRepository struct{ db *gorm.DB }
 
-func NewOrderRepository(db *gorm.DB) *OrderRepository { return &OrderRepository{db: db} }
+func NewOrderRepository(db *gorm.DB) *OrderRepository          { return &OrderRepository{db: db} }
 func (r *OrderRepository) WithTx(tx *gorm.DB) *OrderRepository { return &OrderRepository{db: tx} }
 
 func (r *OrderRepository) Create(tx *gorm.DB, order *domain.Order) error {
@@ -76,6 +76,18 @@ func (r *OrderRepository) UpdateStatus(tx *gorm.DB, orderID uuid.UUID, status do
 		db = tx
 	}
 	return db.Model(&domain.Order{}).Where("id = ?", orderID).Update("status", status).Error
+}
+
+// UpdateStatusByAdmin mengubah status sekaligus mencatat staf pemroses
+// (dipakai endpoint admin; pembatalan oleh customer tetap pakai UpdateStatus).
+func (r *OrderRepository) UpdateStatusByAdmin(tx *gorm.DB, orderID uuid.UUID, status domain.OrderStatus, processorID *uuid.UUID, processorName string) error {
+	db := r.db
+	if tx != nil {
+		db = tx
+	}
+	return db.Model(&domain.Order{}).Where("id = ?", orderID).Updates(map[string]any{
+		"status": status, "processed_by_user_id": processorID, "processed_by_name": processorName,
+	}).Error
 }
 
 func (r *OrderRepository) Update(order *domain.Order) error {

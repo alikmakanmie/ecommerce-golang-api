@@ -12,9 +12,14 @@ import (
 	"github.com/google/uuid"
 )
 
-type OrderHandler struct{ svc *service.OrderService }
+type OrderHandler struct {
+	svc     *service.OrderService
+	userSvc *service.UserService
+}
 
-func NewOrderHandler(svc *service.OrderService) *OrderHandler { return &OrderHandler{svc: svc} }
+func NewOrderHandler(svc *service.OrderService, userSvc *service.UserService) *OrderHandler {
+	return &OrderHandler{svc: svc, userSvc: userSvc}
+}
 
 type CheckoutRequest struct {
 	AddressID     string `json:"address_id" binding:"required"`
@@ -128,7 +133,8 @@ func (h *OrderHandler) CancelOrder(c *gin.Context) {
 	utils.Success(c, http.StatusOK, "order dibatalkan", order)
 }
 
-func (h *OrderHandler) UpdateOrderStatus(c *gin.Context) {	orderID, err := uuid.Parse(c.Param("id"))
+func (h *OrderHandler) UpdateOrderStatus(c *gin.Context) {
+	orderID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		utils.Error(c, http.StatusBadRequest, "id order tidak valid")
 		return
@@ -138,7 +144,22 @@ func (h *OrderHandler) UpdateOrderStatus(c *gin.Context) {	orderID, err := uuid.
 		utils.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	order, err := h.svc.UpdateOrderStatus(orderID, req.Status)
+	// Audit trail: catat siapa staf yang memproses (nama dari profil; jatuh
+	// ke email bila profil tak ditemukan).
+	var processorID *uuid.UUID
+	processorName := ""
+	if actorID, ok := middleware.CurrentUserID(c); ok {
+		processorID = &actorID
+		if u, err := h.userSvc.GetProfile(actorID); err == nil {
+			processorName = u.Name
+		}
+		if processorName == "" {
+			if email, ok := c.Get("email"); ok {
+				processorName, _ = email.(string)
+			}
+		}
+	}
+	order, err := h.svc.UpdateOrderStatus(orderID, req.Status, processorID, processorName)
 	if err != nil {
 		utils.Error(c, http.StatusBadRequest, err.Error())
 		return

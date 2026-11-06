@@ -17,9 +17,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
-func setupRBACRouter(t *testing.T) (*gin.Engine, map[domain.Role]*domain.User) {
+func setupRBACRouter(t *testing.T) (*gin.Engine, map[domain.Role]*domain.User, *gorm.DB) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{
@@ -57,7 +58,7 @@ func setupRBACRouter(t *testing.T) (*gin.Engine, map[domain.Role]*domain.User) {
 		}
 		users[role] = u
 	}
-	return New(cfg, db), users
+	return New(cfg, db), users, db
 }
 
 func tokenFor(t *testing.T, u *domain.User) string {
@@ -98,7 +99,7 @@ func decodeData(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
 }
 
 func TestSuperadminUsers_RBAC(t *testing.T) {
-	r, users := setupRBACRouter(t)
+	r, users, _ := setupRBACRouter(t)
 	saTok, adminTok, custTok := tokenFor(t, users[domain.RoleSuperAdmin]), tokenFor(t, users[domain.RoleAdmin]), tokenFor(t, users[domain.RoleCustomer])
 
 	// Tanpa token -> 401; customer/admin -> 403; superadmin -> 200.
@@ -194,8 +195,49 @@ func TestSuperadminUsers_RBAC(t *testing.T) {
 	}
 }
 
+func TestOrderStatus_RecordsProcessor(t *testing.T) {
+	r, users, db := setupRBACRouter(t)
+	adminTok, saTok, custTok := tokenFor(t, users[domain.RoleAdmin]), tokenFor(t, users[domain.RoleSuperAdmin]), tokenFor(t, users[domain.RoleCustomer])
+
+	order := &domain.Order{
+		OrderNumber: "ORD-20990101-ABCDEF", CustomerName: "Budi Santoso",
+		ShippingName: "Budi Santoso", ShippingPhone: "0811", ShippingAddress: "Jl. Test 1",
+		Status: domain.OrderPaid, Subtotal: 50000, Total: 50000, PaymentMethod: "qris",
+	}
+	if err := db.Create(order).Error; err != nil {
+		t.Fatalf("buat order: %v", err)
+	}
+	path := fmt.Sprintf("/api/v1/admin/orders/%s/status", order.ID)
+
+	// Customer tidak boleh ubah status (403 dari middleware admin).
+	if w := doReq(t, r, "PATCH", path, map[string]any{"status": "processing"}, custTok); w.Code != http.StatusForbidden {
+		t.Fatalf("customer PATCH status: got %d, want 403", w.Code)
+	}
+	// Admin paid -> processing: tercatat nama admin.
+	w := doReq(t, r, "PATCH", path, map[string]any{"status": "processing"}, adminTok)
+	if w.Code != http.StatusOK {
+		t.Fatalf("admin PATCH: got %d, want 200: %s", w.Code, w.Body.String())
+	}
+	updated := decodeData(t, w)
+	if updated["processed_by_name"] != "admin" {
+		t.Fatalf("processed_by_name: got %v, want admin", updated["processed_by_name"])
+	}
+	if updated["processed_by_user_id"] != users[domain.RoleAdmin].ID.String() {
+		t.Fatalf("processed_by_user_id: got %v, want %s", updated["processed_by_user_id"], users[domain.RoleAdmin].ID)
+	}
+	// Superadmin processing -> shipped: nama pemroses ikut berubah.
+	w = doReq(t, r, "PATCH", path, map[string]any{"status": "shipped"}, saTok)
+	if w.Code != http.StatusOK {
+		t.Fatalf("superadmin PATCH: got %d, want 200: %s", w.Code, w.Body.String())
+	}
+	updated = decodeData(t, w)
+	if updated["processed_by_name"] != "superadmin" {
+		t.Fatalf("processed_by_name setelah superadmin: got %v, want superadmin", updated["processed_by_name"])
+	}
+}
+
 func TestAdminStoreOps_AllowedForAdminAndSuperadmin(t *testing.T) {
-	r, users := setupRBACRouter(t)
+	r, users, _ := setupRBACRouter(t)
 	adminTok, saTok, custTok := tokenFor(t, users[domain.RoleAdmin]), tokenFor(t, users[domain.RoleSuperAdmin]), tokenFor(t, users[domain.RoleCustomer])
 
 	// Customer tidak boleh buat kategori/produk; admin & superadmin boleh.

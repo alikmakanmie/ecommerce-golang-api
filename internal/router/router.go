@@ -38,7 +38,7 @@ func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	productH := handler.NewProductHandler(productSvc)
 	categoryH := handler.NewCategoryHandler(productSvc)
 	cartH := handler.NewCartHandler(cartSvc)
-	orderH := handler.NewOrderHandler(orderSvc)
+	orderH := handler.NewOrderHandler(orderSvc, userSvc)
 	paymentH := handler.NewPaymentHandler(paymentSvc, cfg.WebhookSecret)
 	analyticsH := handler.NewAnalyticsHandler(analyticsSvc)
 

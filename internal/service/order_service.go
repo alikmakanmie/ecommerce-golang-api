@@ -17,14 +17,14 @@ import (
 )
 
 type OrderService struct {
-	db           *gorm.DB
-	orderRepo    *repository.OrderRepository
-	cartRepo     *repository.CartRepository
-	productRepo  *repository.ProductRepository
-	paymentRepo  *repository.PaymentRepository
-	addressRepo  *repository.AddressRepository
-	gateway      *payment.MockGateway
-	cfg          *config.Config
+	db          *gorm.DB
+	orderRepo   *repository.OrderRepository
+	cartRepo    *repository.CartRepository
+	productRepo *repository.ProductRepository
+	paymentRepo *repository.PaymentRepository
+	addressRepo *repository.AddressRepository
+	gateway     *payment.MockGateway
+	cfg         *config.Config
 }
 
 func NewOrderService(db *gorm.DB, orderRepo *repository.OrderRepository, cartRepo *repository.CartRepository, productRepo *repository.ProductRepository, paymentRepo *repository.PaymentRepository, addressRepo *repository.AddressRepository, gateway *payment.MockGateway, cfg *config.Config) *OrderService {
@@ -363,7 +363,7 @@ func (s *OrderService) ListOrders(userID uuid.UUID, isAdmin bool, page, limit in
 	return s.orderRepo.ListByUser(userID, page, limit)
 }
 
-func (s *OrderService) UpdateOrderStatus(orderID uuid.UUID, target domain.OrderStatus) (*domain.Order, error) {
+func (s *OrderService) UpdateOrderStatus(orderID uuid.UUID, target domain.OrderStatus, processorID *uuid.UUID, processorName string) (*domain.Order, error) {
 	order, err := s.orderRepo.FindByID(orderID)
 	if err != nil {
 		return nil, errors.New("order tidak ditemukan")
@@ -371,10 +371,12 @@ func (s *OrderService) UpdateOrderStatus(orderID uuid.UUID, target domain.OrderS
 	if !order.CanTransitionTo(target) {
 		return nil, fmt.Errorf("transisi status dari %s ke %s tidak diizinkan", order.Status, target)
 	}
-	if err := s.orderRepo.UpdateStatus(nil, orderID, target); err != nil {
+	if err := s.orderRepo.UpdateStatusByAdmin(nil, orderID, target, processorID, processorName); err != nil {
 		return nil, err
 	}
 	order.Status = target
+	order.ProcessedByUserID = processorID
+	order.ProcessedByName = processorName
 	return order, nil
 }
 

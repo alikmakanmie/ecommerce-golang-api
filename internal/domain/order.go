@@ -19,29 +19,32 @@ const (
 )
 
 type Order struct {
-	ID              uuid.UUID      `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID          *uuid.UUID     `gorm:"type:uuid;index" json:"user_id,omitempty"`
-	OrderNumber     string         `gorm:"size:30;uniqueIndex;not null" json:"order_number"`
-	CustomerName    string         `gorm:"size:100;not null" json:"customer_name"`
-	CustomerPhone   string         `gorm:"size:20" json:"customer_phone"`
-	OrderType       string         `gorm:"size:20;not null;default:delivery" json:"order_type"`
-	TableNumber     string         `gorm:"size:20" json:"table_number,omitempty"`
-	AddressID       *uuid.UUID     `gorm:"type:uuid;index" json:"address_id,omitempty"`
-	Address         *Address       `gorm:"foreignKey:AddressID" json:"shipping_address,omitempty"`
-	ShippingName    string         `gorm:"size:100;not null" json:"shipping_name"`
-	ShippingPhone   string         `gorm:"size:20;not null" json:"shipping_phone"`
-	ShippingAddress string         `gorm:"size:500;not null" json:"shipping_address_text"`
-	Status          OrderStatus    `gorm:"size:20;not null;default:pending;index" json:"status"`
-	Subtotal        int64          `gorm:"not null" json:"subtotal"`
-	ShippingCost    int64          `gorm:"not null;default:0" json:"shipping_cost"`
-	Total           int64          `gorm:"not null" json:"total"`
-	PaymentMethod   string         `gorm:"size:30;not null" json:"payment_method"`
-	Notes           string         `gorm:"size:500" json:"notes"`
-	Items           []OrderItem    `gorm:"foreignKey:OrderID" json:"items"`
-	Payment         *Payment       `gorm:"foreignKey:OrderID" json:"payment,omitempty"`
-	CreatedAt       time.Time      `json:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at"`
-	DeletedAt       gorm.DeletedAt `gorm:"index" json:"-"`
+	ID              uuid.UUID   `gorm:"type:uuid;primaryKey" json:"id"`
+	UserID          *uuid.UUID  `gorm:"type:uuid;index" json:"user_id,omitempty"`
+	OrderNumber     string      `gorm:"size:30;uniqueIndex;not null" json:"order_number"`
+	CustomerName    string      `gorm:"size:100;not null" json:"customer_name"`
+	CustomerPhone   string      `gorm:"size:20" json:"customer_phone"`
+	OrderType       string      `gorm:"size:20;not null;default:delivery" json:"order_type"`
+	TableNumber     string      `gorm:"size:20" json:"table_number,omitempty"`
+	AddressID       *uuid.UUID  `gorm:"type:uuid;index" json:"address_id,omitempty"`
+	Address         *Address    `gorm:"foreignKey:AddressID" json:"shipping_address,omitempty"`
+	ShippingName    string      `gorm:"size:100;not null" json:"shipping_name"`
+	ShippingPhone   string      `gorm:"size:20;not null" json:"shipping_phone"`
+	ShippingAddress string      `gorm:"size:500;not null" json:"shipping_address_text"`
+	Status          OrderStatus `gorm:"size:20;not null;default:pending;index" json:"status"`
+	Subtotal        int64       `gorm:"not null" json:"subtotal"`
+	ShippingCost    int64       `gorm:"not null;default:0" json:"shipping_cost"`
+	Total           int64       `gorm:"not null" json:"total"`
+	PaymentMethod   string      `gorm:"size:30;not null" json:"payment_method"`
+	Notes           string      `gorm:"size:500" json:"notes"`
+	// Audit trail single-store: staf (admin/superadmin) terakhir yang mengubah status.
+	ProcessedByUserID *uuid.UUID     `gorm:"type:uuid;index" json:"processed_by_user_id,omitempty"`
+	ProcessedByName   string         `gorm:"size:100" json:"processed_by_name,omitempty"`
+	Items             []OrderItem    `gorm:"foreignKey:OrderID" json:"items"`
+	Payment           *Payment       `gorm:"foreignKey:OrderID" json:"payment,omitempty"`
+	CreatedAt         time.Time      `json:"created_at"`
+	UpdatedAt         time.Time      `json:"updated_at"`
+	DeletedAt         gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 func (o *Order) BeforeCreate(tx *gorm.DB) error {
