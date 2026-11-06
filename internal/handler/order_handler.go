@@ -63,7 +63,8 @@ func (h *OrderHandler) ListOrders(c *gin.Context) {
 	}
 	isAdmin := false
 	if role, exists := c.Get("role"); exists {
-		if r, ok := role.(domain.Role); ok && r == domain.RoleAdmin {
+		if r, ok := role.(domain.Role); ok &&
+			(r == domain.RoleAdmin || r == domain.RoleSuperAdmin) {
 			isAdmin = true
 		}
 	}
@@ -102,7 +103,8 @@ func (h *OrderHandler) GetOrder(c *gin.Context) {
 	}
 	isAdmin := false
 	if role, exists := c.Get("role"); exists {
-		if r, ok := role.(domain.Role); ok && r == domain.RoleAdmin {
+		if r, ok := role.(domain.Role); ok &&
+			(r == domain.RoleAdmin || r == domain.RoleSuperAdmin) {
 			isAdmin = true
 		}
 	}

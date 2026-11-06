@@ -106,6 +106,7 @@ func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	admin.DELETE("/categories/:id", categoryH.DeleteCategory)
 	admin.GET("/admin/orders", orderH.ListAllOrders)
 	admin.PATCH("/admin/orders/:id/status", orderH.UpdateOrderStatus)
+	admin.POST("/admin/orders/:id/simulate-payment", paymentH.SimulatePayment)
 	admin.GET("/admin/analytics/profit", analyticsH.GetProfit)
 
 	// Superadmin saja: manajemen user & akses.

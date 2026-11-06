@@ -13,6 +13,7 @@ import (
 	"ecommerce-api/pkg/utils"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type PaymentHandler struct {
@@ -73,6 +74,25 @@ func (h *PaymentHandler) Webhook(c *gin.Context) {
 		return
 	}
 	utils.Success(c, http.StatusOK, "webhook diproses", pay)
+}
+
+// SimulatePayment (admin): tandai pembayaran order sebagai lunas tanpa
+// webhook eksternal. POST /admin/orders/:id/simulate-payment.
+func (h *PaymentHandler) SimulatePayment(c *gin.Context) {
+	orderID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.Error(c, http.StatusBadRequest, "id order tidak valid")
+		return
+	}
+	pay, order, err := h.svc.SimulatePayment(orderID)
+	if err != nil {
+		utils.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	utils.Success(c, http.StatusOK, "pembayaran disimulasikan lunas", gin.H{
+		"payment": pay,
+		"order":   order,
+	})
 }
 
 func (h *PaymentHandler) MockPayPage(c *gin.Context) {

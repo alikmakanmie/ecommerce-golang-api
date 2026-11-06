@@ -11,6 +11,7 @@ import (
 	"ecommerce-api/internal/payment"
 	"ecommerce-api/internal/repository"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -259,6 +260,38 @@ func TestPaymentWebhookSettlement(t *testing.T) {
 	}
 	if _, err := svc.pay.HandleWebhook(txID, "bogus-status", "{}"); err == nil {
 		t.Fatalf("webhook status tidak dikenal harus error")
+	}
+}
+
+func TestSimulatePayment(t *testing.T) {
+	cfg := setupTestDB(t)
+	svc := newTestServices(t, cfg)
+	p := mustCategoryProduct(t, svc, 10, 100000)
+	user := mustCustomerWithAddress(t, svc, "sim@example.com")
+
+	order := mustCheckout(t, svc, user, p, 1)
+	if order.Status != domain.OrderPending {
+		t.Fatalf("order status = %s, want pending", order.Status)
+	}
+
+	// Simulasi: payment pending -> settlement, order pending -> paid.
+	pay, updated, err := svc.pay.SimulatePayment(order.ID)
+	if err != nil {
+		t.Fatalf("simulate: %v", err)
+	}
+	if pay.Status != domain.PaymentSettlement {
+		t.Fatalf("payment status = %s, want settlement", pay.Status)
+	}
+	if updated == nil || updated.Status != domain.OrderPaid {
+		t.Fatalf("order status = %v, want paid", updated)
+	}
+	// Idempotent: simulasi kedua tidak error & tidak mengubah apa-apa.
+	if _, _, err := svc.pay.SimulatePayment(order.ID); err != nil {
+		t.Fatalf("simulate kedua harus idempotent, err: %v", err)
+	}
+	// Order tanpa pembayaran -> error.
+	if _, _, err := svc.pay.SimulatePayment(uuid.New()); err == nil {
+		t.Fatalf("simulate order tak dikenal harus error")
 	}
 }
 

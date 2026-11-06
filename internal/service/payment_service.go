@@ -8,6 +8,7 @@ import (
 	"ecommerce-api/internal/domain"
 	"ecommerce-api/internal/repository"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -107,4 +108,24 @@ func (s *PaymentService) HandleWebhook(transactionID, status string, rawPayload 
 
 func (s *PaymentService) GetByTransactionID(txID string) (*domain.Payment, error) {
 	return s.paymentRepo.FindByTransactionID(txID)
+}
+
+// SimulatePayment menandai pembayaran sebuah order sebagai lunas lewat
+// jalur webhook yang sama (idempotent: settlement kedua tidak mengubah
+// apa-apa). Dipakai staf dari aplikasi backoffice saat pelanggan sudah
+// bayar di kasir (tunai/QRIS). Mengembalikan payment + order terbaru.
+func (s *PaymentService) SimulatePayment(orderID uuid.UUID) (*domain.Payment, *domain.Order, error) {
+	pay, err := s.paymentRepo.FindByOrderID(orderID)
+	if err != nil {
+		return nil, nil, errors.New("order belum punya pembayaran")
+	}
+	settled, err := s.HandleWebhook(pay.TransactionID, "settlement", "simulated-by-admin")
+	if err != nil {
+		return nil, nil, err
+	}
+	order, err := s.orderRepo.FindByID(orderID)
+	if err != nil {
+		return settled, nil, nil
+	}
+	return settled, order, nil
 }
