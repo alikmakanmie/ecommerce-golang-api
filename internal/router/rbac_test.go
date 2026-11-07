@@ -34,6 +34,10 @@ func setupRBACRouter(t *testing.T) (*gin.Engine, map[domain.Role]*domain.User, *
 		JWTRefreshTTL:      7 * 24 * time.Hour,
 		PaymentMockBaseURL: "http://localhost:8080",
 		CORSAllowedOrigins: []string{"*"},
+		// Limiter dibuka lebar agar tes menguji logika, bukan limiter.
+		PublicRateLimit:     1000,
+		PublicBurst:         1000,
+		UploadMaxConcurrent: 20,
 	}
 	db, err := database.Connect(cfg)
 	if err != nil {
@@ -266,5 +270,103 @@ func TestAdminStoreOps_AllowedForAdminAndSuperadmin(t *testing.T) {
 	}
 	if w := doReq(t, r, "GET", "/api/v1/admin/analytics/profit", nil, custTok); w.Code != http.StatusForbidden {
 		t.Fatalf("customer profit analytics: got %d, want 403", w.Code)
+	}
+}
+
+func TestNewPublicEndpoints_VoucherLoyaltyQueue(t *testing.T) {
+	r, users, db := setupRBACRouter(t)
+	adminTok, custTok := tokenFor(t, users[domain.RoleAdmin]), tokenFor(t, users[domain.RoleCustomer])
+
+	// Voucher langsung di DB (bypass service) untuk uji endpoint publik.
+	v := &domain.Voucher{Code: "SLARASHEMAT", DiscountType: "percentage", DiscountValue: 20,
+		MinOrderAmount: 30000, MaxDiscount: 15000, IsActive: true}
+	if err := db.Create(v).Error; err != nil {
+		t.Fatalf("seed voucher: %v", err)
+	}
+
+	// POST /vouchers/validate publik (tanpa token): valid -> diskon 10000.
+	w := doReq(t, r, "POST", "/api/v1/vouchers/validate", map[string]any{"code": "slarashemat", "subtotal": 50000}, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("validate: got %d, want 200: %s", w.Code, w.Body.String())
+	}
+	data := decodeData(t, w)
+	if data["valid"] != true || data["discount_amount"] != float64(10000) {
+		t.Fatalf("validate data: %+v, want valid true discount 10000", data)
+	}
+	// Kode salah -> valid false, tetap 200.
+	w = doReq(t, r, "POST", "/api/v1/vouchers/validate", map[string]any{"code": "SALAH", "subtotal": 50000}, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("validate salah: got %d, want 200", w.Code)
+	}
+	if decodeData(t, w)["valid"] != false {
+		t.Fatalf("validate kode salah harus valid=false")
+	}
+
+	// GET /loyalty/:phone publik: pelanggan baru -> 0 stamp.
+	w = doReq(t, r, "GET", "/api/v1/loyalty/081234567890", nil, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("loyalty: got %d, want 200: %s", w.Code, w.Body.String())
+	}
+	loyal := decodeData(t, w)
+	if loyal["phone"] != "6281234567890" || loyal["points"] != float64(0) || loyal["reward_eligible"] != false {
+		t.Fatalf("loyalty data: %+v, want phone 6281234567890 points 0", loyal)
+	}
+
+	// GET /orders/queue publik: kosong -> 200, array kosong.
+	w = doReq(t, r, "GET", "/api/v1/orders/queue", nil, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("queue: got %d, want 200: %s", w.Code, w.Body.String())
+	}
+	var env struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+		t.Fatalf("decode queue: %v", err)
+	}
+	if len(env.Data) != 0 {
+		t.Fatalf("queue kosong: got %d, want 0", len(env.Data))
+	}
+
+	// PATCH /products/:id/availability: customer 403, admin 200.
+	cat := &domain.Category{Name: "Minuman", Slug: "minuman"}
+	if err := db.Create(cat).Error; err != nil {
+		t.Fatalf("seed category: %v", err)
+	}
+	prod := &domain.Product{CategoryID: cat.ID, Name: "Kopi", Slug: "kopi", Price: 10000, Stock: 5, SKU: "SKU-Q-1", IsActive: true, IsAvailable: true}
+	if err := db.Create(prod).Error; err != nil {
+		t.Fatalf("seed product: %v", err)
+	}
+	availPath := fmt.Sprintf("/api/v1/products/%s/availability", prod.ID)
+	if w := doReq(t, r, "PATCH", availPath, map[string]any{"is_available": false}, custTok); w.Code != http.StatusForbidden {
+		t.Fatalf("customer toggle availability: got %d, want 403", w.Code)
+	}
+	w = doReq(t, r, "PATCH", availPath, map[string]any{"is_available": false}, adminTok)
+	if w.Code != http.StatusOK {
+		t.Fatalf("admin toggle availability: got %d, want 200: %s", w.Code, w.Body.String())
+	}
+	if decodeData(t, w)["is_available"] != false {
+		t.Fatalf("is_available sesudah toggle harus false: %s", w.Body.String())
+	}
+
+	// CRUD voucher admin: customer 403, admin 200.
+	if w := doReq(t, r, "POST", "/api/v1/admin/vouchers", map[string]any{
+		"code": "BARU10", "discount_type": "fixed", "discount_value": 10000, "min_order_amount": 25000,
+	}, custTok); w.Code != http.StatusForbidden {
+		t.Fatalf("customer create voucher: got %d, want 403", w.Code)
+	}
+	w = doReq(t, r, "POST", "/api/v1/admin/vouchers", map[string]any{
+		"code": "BARU10", "discount_type": "fixed", "discount_value": 10000, "min_order_amount": 25000,
+	}, adminTok)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("admin create voucher: got %d, want 201: %s", w.Code, w.Body.String())
+	}
+	voucherID := decodeData(t, w)["id"].(string)
+	w = doReq(t, r, "GET", "/api/v1/admin/vouchers", nil, adminTok)
+	if w.Code != http.StatusOK {
+		t.Fatalf("admin list voucher: got %d, want 200", w.Code)
+	}
+	w = doReq(t, r, "DELETE", "/api/v1/admin/vouchers/"+voucherID, nil, adminTok)
+	if w.Code != http.StatusOK {
+		t.Fatalf("admin delete voucher: got %d, want 200: %s", w.Code, w.Body.String())
 	}
 }

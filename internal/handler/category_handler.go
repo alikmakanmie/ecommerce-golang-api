@@ -12,7 +12,9 @@ import (
 
 type CategoryHandler struct{ svc *service.ProductService }
 
-func NewCategoryHandler(svc *service.ProductService) *CategoryHandler { return &CategoryHandler{svc: svc} }
+func NewCategoryHandler(svc *service.ProductService) *CategoryHandler {
+	return &CategoryHandler{svc: svc}
+}
 
 type CategoryRequest struct {
 	Name        string `json:"name" binding:"required,min=2,max=100"`

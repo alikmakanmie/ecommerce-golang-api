@@ -26,6 +26,9 @@ func Run(db *gorm.DB) error {
 	if err := seedCatalog(db); err != nil {
 		return err
 	}
+	if err := seedVouchers(db); err != nil {
+		return err
+	}
 	if err := seedDemoOrders(db); err != nil {
 		return err
 	}
@@ -112,6 +115,72 @@ var legacyProductSlugs = []string{
 	"kopi-susu-gula-aren", "es-jeruk-peras", "paket-nasi-box-slaras",
 }
 
+// drinkModifiers adalah varian bawaan semua minuman: suhu, gula, es
+// (gratis) + add-on berbayar. foodModifiers hanya add-on keju/sambal.
+// Merchandise (beans-merch) tidak punya varian.
+var drinkModifiers = []domain.ModifierGroup{
+	{Group: "Temperature", Type: "single", Options: []domain.ModifierOption{
+		{Name: "Iced", PriceDelta: 0, CostDelta: 0},
+		{Name: "Hot", PriceDelta: 0, CostDelta: 0},
+	}},
+	{Group: "Sugar Level", Type: "single", Options: []domain.ModifierOption{
+		{Name: "Normal Sugar", PriceDelta: 0, CostDelta: 0},
+		{Name: "Less Sugar", PriceDelta: 0, CostDelta: 0},
+		{Name: "No Sugar", PriceDelta: 0, CostDelta: 0},
+	}},
+	{Group: "Ice Level", Type: "single", Options: []domain.ModifierOption{
+		{Name: "Normal Ice", PriceDelta: 0, CostDelta: 0},
+		{Name: "Less Ice", PriceDelta: 0, CostDelta: 0},
+	}},
+	{Group: "Add-Ons", Type: "multiple", Options: []domain.ModifierOption{
+		{Name: "Extra Espresso Shot", PriceDelta: 5000, CostDelta: 2500},
+		{Name: "Upgrade Oat Milk", PriceDelta: 8000, CostDelta: 4500},
+		{Name: "Extra Cheese / Sambal", PriceDelta: 4000, CostDelta: 2000},
+	}},
+}
+
+var foodModifiers = []domain.ModifierGroup{
+	{Group: "Add-Ons", Type: "multiple", Options: []domain.ModifierOption{
+		{Name: "Extra Cheese / Sambal", PriceDelta: 4000, CostDelta: 2000},
+	}},
+}
+
+func defaultModifiers(catSlug string) []domain.ModifierGroup {
+	switch catSlug {
+	case "signature-coffee", "non-coffee-tea":
+		return drinkModifiers
+	case "pastry-croissant", "main-course":
+		return foodModifiers
+	default:
+		return nil
+	}
+}
+
+// seedVouchers menanam 3 voucher aktif siap pakai (idempotent per code).
+// Quota 0 = tanpa batas pemakaian.
+var seedVouchersList = []domain.Voucher{
+	{Code: "SLARASHEMAT", DiscountType: "percentage", DiscountValue: 20, MinOrderAmount: 30000, MaxDiscount: 15000, IsActive: true},
+	{Code: "KOPIPAGI", DiscountType: "fixed", DiscountValue: 10000, MinOrderAmount: 25000, IsActive: true},
+	{Code: "FOODLAB50", DiscountType: "percentage", DiscountValue: 50, MinOrderAmount: 0, MaxDiscount: 20000, IsActive: true},
+}
+
+func seedVouchers(db *gorm.DB) error {
+	for _, sv := range seedVouchersList {
+		var count int64
+		if err := db.Model(&domain.Voucher{}).Where("code = ?", sv.Code).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			continue
+		}
+		v := sv
+		if err := db.Create(&v).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func seedCatalog(db *gorm.DB) error {
 	catBySlug := map[string]domain.Category{}
 	for _, sc := range seedCategories {
@@ -146,12 +215,16 @@ func seedCatalog(db *gorm.DB) error {
 			}
 			p = domain.Product{CategoryID: cat.ID, Name: sp.name, Slug: sp.slug, Description: sp.desc,
 				Price: sp.price, CostPrice: sp.costPrice, Stock: sp.stock, SKU: sp.sku,
-				ImageURL: sp.img, WeightGram: sp.weight, IsActive: true}
+				ImageURL: sp.img, WeightGram: sp.weight, IsActive: true, IsAvailable: true}
+			if err := p.SetModifiers(defaultModifiers(sp.catSlug)); err != nil {
+				return err
+			}
 			if err := db.Create(&p).Error; err != nil {
 				return err
 			}
 		} else {
 			// Perbarui data menu; stok TIDAK di-reset (milik operasional toko).
+			// IsAvailable juga TIDAK di-reset (toggle sold out milik barista).
 			p.CategoryID = cat.ID
 			p.Name = sp.name
 			p.Slug = sp.slug
@@ -161,6 +234,13 @@ func seedCatalog(db *gorm.DB) error {
 			p.ImageURL = sp.img
 			p.WeightGram = sp.weight
 			p.IsActive = true
+			// Isi modifier bawaan hanya bila produk belum punya konfigurasi
+			// (agar edit varian manual admin tidak tertimpa tiap restart).
+			if len(p.ModifiersJSON) == 0 {
+				if err := p.SetModifiers(defaultModifiers(sp.catSlug)); err != nil {
+					return err
+				}
+			}
 			if err := db.Save(&p).Error; err != nil {
 				return err
 			}
@@ -301,7 +381,8 @@ func seedDemoOrders(db *gorm.DB) error {
 			subtotal += line
 			orderItems = append(orderItems, domain.OrderItem{
 				ProductID: p.ID, ProductName: p.Name, Price: p.Price,
-				CostPrice: p.CostPrice, Quantity: it.qty, Subtotal: line,
+				CostPrice: p.CostPrice, UnitPrice: p.Price, UnitCost: p.CostPrice,
+				Quantity: it.qty, Subtotal: line,
 				CreatedAt: createdAt, UpdatedAt: createdAt,
 			})
 		}

@@ -30,6 +30,14 @@ type Config struct {
 	WebhookSecret      string
 	CORSAllowedOrigins []string
 	SeedDB             bool
+	// URL publik API (untuk membangun URL absolut hasil upload).
+	PublicBaseURL string
+	// Rate limit global API per IP (request/detik + burst). Default
+	// 20/40; saat benchmark dibuka lebar via env, lalu dikembalikan.
+	PublicRateLimit float64
+	PublicBurst     int
+	// Batas upload serentak (semaphore POST /upload). Default 20.
+	UploadMaxConcurrent int
 }
 
 func getEnv(key, def string) string {
@@ -61,6 +69,18 @@ func Load() (*Config, error) {
 	if err != nil || refreshDays <= 0 {
 		return nil, fmt.Errorf("JWT_REFRESH_TTL_DAYS tidak valid")
 	}
+	rateLimit, err := strconv.ParseFloat(getEnv("PUBLIC_RATE_LIMIT", "20"), 64)
+	if err != nil || rateLimit <= 0 {
+		return nil, fmt.Errorf("PUBLIC_RATE_LIMIT tidak valid")
+	}
+	burst, err := strconv.Atoi(getEnv("PUBLIC_BURST", "40"))
+	if err != nil || burst <= 0 {
+		return nil, fmt.Errorf("PUBLIC_BURST tidak valid")
+	}
+	uploadMax, err := strconv.Atoi(getEnv("UPLOAD_MAX_CONCURRENT", "20"))
+	if err != nil || uploadMax <= 0 {
+		return nil, fmt.Errorf("UPLOAD_MAX_CONCURRENT tidak valid")
+	}
 	cfg := &Config{
 		AppEnv:             getEnv("APP_ENV", "development"),
 		AppPort:            getEnv("APP_PORT", "8080"),
@@ -81,6 +101,10 @@ func Load() (*Config, error) {
 		WebhookSecret:      os.Getenv("WEBHOOK_SECRET"),
 		CORSAllowedOrigins: splitCSV(getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8080")),
 		SeedDB:             getEnvBool("SEED_DB", false),
+		PublicBaseURL:      getEnv("PUBLIC_BASE_URL", "https://api.alikmakanmie.my.id"),
+		PublicRateLimit:    rateLimit,
+		PublicBurst:        burst,
+		UploadMaxConcurrent: uploadMax,
 	}
 	if len(cfg.JWTAccessSecret) < 32 || len(cfg.JWTRefreshSecret) < 32 {
 		return nil, fmt.Errorf("JWT_ACCESS_SECRET dan JWT_REFRESH_SECRET wajib minimal 32 karakter")

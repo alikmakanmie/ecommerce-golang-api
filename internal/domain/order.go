@@ -33,9 +33,15 @@ type Order struct {
 	ShippingAddress string      `gorm:"size:500;not null" json:"shipping_address_text"`
 	Status          OrderStatus `gorm:"size:20;not null;default:pending;index" json:"status"`
 	Subtotal        int64       `gorm:"not null" json:"subtotal"`
-	ShippingCost    int64       `gorm:"not null;default:0" json:"shipping_cost"`
-	Total           int64       `gorm:"not null" json:"total"`
-	PaymentMethod   string      `gorm:"size:30;not null" json:"payment_method"`
+	// DiscountAmount adalah potongan voucher (rupiah); VoucherCode kode yang dipakai.
+	DiscountAmount int64  `gorm:"not null;default:0" json:"discount_amount"`
+	VoucherCode    string `gorm:"size:50" json:"voucher_code,omitempty"`
+	ShippingCost   int64  `gorm:"not null;default:0" json:"shipping_cost"`
+	Total          int64  `gorm:"not null" json:"total"`
+	// LoyaltyAwarded menandai stamp loyalty sudah diberikan untuk order ini
+	// (anti double-count bila status paid/completed disentuh berkali-kali).
+	LoyaltyAwarded bool        `gorm:"not null;default:false" json:"-"`
+	PaymentMethod  string      `gorm:"size:30;not null" json:"payment_method"`
 	Notes           string      `gorm:"size:500" json:"notes"`
 	// Audit trail single-store: staf (admin/superadmin) terakhir yang mengubah status.
 	ProcessedByUserID *uuid.UUID     `gorm:"type:uuid;index" json:"processed_by_user_id,omitempty"`
@@ -82,12 +88,20 @@ type OrderItem struct {
 	ProductName string         `gorm:"size:150;not null" json:"product_name"`
 	Price       int64          `gorm:"not null" json:"price"`
 	CostPrice   int64          `gorm:"not null;default:0" json:"cost_price"`
-	Quantity    int            `gorm:"not null;check:quantity>0" json:"quantity"`
-	Notes       string         `gorm:"size:200" json:"notes,omitempty"`
-	Subtotal    int64          `gorm:"not null" json:"subtotal"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
-	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
+	// SelectedModifiers: varian yang dipilih pelanggan, array datar JSON
+	// [{"name":"Iced","price_delta":0,"cost_delta":0}, ...].
+	// UnitPrice = harga dasar + jumlah price_delta; UnitCost = HPP dasar +
+	// jumlah cost_delta. Price/CostPrice selalu disinkronkan dengan
+	// UnitPrice/UnitCost agar analytics lama tetap akurat.
+	SelectedModifiers RawJSON `gorm:"type:text;column:selected_modifiers" json:"selected_modifiers"`
+	UnitPrice         int64   `gorm:"not null;default:0" json:"unit_price"`
+	UnitCost          int64   `gorm:"not null;default:0" json:"unit_cost"`
+	Quantity          int     `gorm:"not null;check:quantity>0" json:"quantity"`
+	Notes             string  `gorm:"size:200" json:"notes,omitempty"`
+	Subtotal          int64   `gorm:"not null" json:"subtotal"`
+	CreatedAt         time.Time      `json:"created_at"`
+	UpdatedAt         time.Time      `json:"updated_at"`
+	DeletedAt         gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 func (i *OrderItem) BeforeCreate(tx *gorm.DB) error {

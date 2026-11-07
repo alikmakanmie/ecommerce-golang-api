@@ -30,6 +30,10 @@ type ProductInput struct {
 	ImageURL    string
 	WeightGram  int
 	IsActive    bool
+	// IsAvailable nil = tidak diubah (create: default true); dipakai toggle sold out.
+	IsAvailable *bool
+	// Modifiers nil = tidak diubah; slice kosong = hapus semua varian.
+	Modifiers []domain.ModifierGroup
 }
 
 type ProductService struct {
@@ -140,9 +144,16 @@ func (s *ProductService) CreateProduct(in ProductInput) (*domain.Product, error)
 		ImageURL:    in.ImageURL,
 		WeightGram:  in.WeightGram,
 		IsActive:    true,
+		IsAvailable: true,
 	}
 	// IsActive defaults to true; explicit false in input is respected only via UpdateProduct.
 	// CreateProduct always activates a new product unless caller later deactivates it.
+	if in.IsAvailable != nil {
+		p.IsAvailable = *in.IsAvailable
+	}
+	if err := p.SetModifiers(in.Modifiers); err != nil {
+		return nil, err
+	}
 	if err := s.productRepo.Create(p); err != nil {
 		return nil, err
 	}
@@ -190,7 +201,29 @@ func (s *ProductService) UpdateProduct(id uuid.UUID, in ProductInput) (*domain.P
 	if in.WeightGram >= 0 {
 		p.WeightGram = in.WeightGram
 	}
+	if in.IsAvailable != nil {
+		p.IsAvailable = *in.IsAvailable
+	}
+	if in.Modifiers != nil {
+		if err := p.SetModifiers(in.Modifiers); err != nil {
+			return nil, err
+		}
+	}
 	p.IsActive = in.IsActive
+	if err := s.productRepo.Update(p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// SetAvailability adalah toggle 1-klik "Habis Hari Ini": mengubah
+// is_available tanpa menyentuh stok maupun field lain.
+func (s *ProductService) SetAvailability(id uuid.UUID, available bool) (*domain.Product, error) {
+	p, err := s.productRepo.FindByID(id)
+	if err != nil {
+		return nil, err
+	}
+	p.IsAvailable = available
 	if err := s.productRepo.Update(p); err != nil {
 		return nil, err
 	}

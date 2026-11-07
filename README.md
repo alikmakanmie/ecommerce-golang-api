@@ -214,3 +214,85 @@ Arsitektur: file asli (master) disimpan di VM Dhodi, salinan web di-sync ke VPS.
 - Ingest foto baru: `python3 scripts/sync-uploads.py ingest <file> [nama]` — mencetak URL publiknya.
 - API menyajikan salinan web di `GET /uploads/<file>` (route statis, direktori `./uploads`).
 - `image_url` produk diisi URL publik, mis. `http://203.175.11.164:2150/uploads/<file>` (atau `https://api.alikmakanmie.my.id/uploads/<file>` setelah domain live).
+
+## Varian, Voucher & Loyalty (upgrade Nov 2026)
+
+### Format modifiers produk (`modifiers_json`)
+
+Satu produk menyimpan daftar grup varian sebagai JSON di kolom
+`modifiers_json` (respons API juga mengekspos bentuk ter-parse di field
+`modifiers`). Tiap opsi punya `name`, `price_delta`, dan `cost_delta`
+(rupiah, ditambahkan ke harga/HPP dasar):
+
+```json
+[
+  {"group": "Temperature", "type": "single", "options": [
+    {"name": "Iced", "price_delta": 0, "cost_delta": 0},
+    {"name": "Hot", "price_delta": 0, "cost_delta": 0}]},
+  {"group": "Sugar Level", "type": "single", "options": [
+    {"name": "Normal Sugar", "price_delta": 0, "cost_delta": 0},
+    {"name": "Less Sugar", "price_delta": 0, "cost_delta": 0},
+    {"name": "No Sugar", "price_delta": 0, "cost_delta": 0}]},
+  {"group": "Ice Level", "type": "single", "options": [
+    {"name": "Normal Ice", "price_delta": 0, "cost_delta": 0},
+    {"name": "Less Ice", "price_delta": 0, "cost_delta": 0}]},
+  {"group": "Add-Ons", "type": "multiple", "options": [
+    {"name": "Extra Espresso Shot", "price_delta": 5000, "cost_delta": 2500},
+    {"name": "Upgrade Oat Milk", "price_delta": 8000, "cost_delta": 4500},
+    {"name": "Extra Cheese / Sambal", "price_delta": 4000, "cost_delta": 2000}]}
+]
+```
+
+`type: "single"` = pilih tepat 1 opsi; `"multiple"` = boleh 0..n.
+Seeder mengisi varian ini otomatis: minuman lengkap, pastry/main-course
+hanya Add-Ons (Extra Cheese / Sambal), merchandise tanpa varian.
+
+### Format selected_modifiers per item checkout
+
+Saat guest checkout, tiap item boleh membawa `selected_modifiers` — array
+datar opsi yang dipilih (format sama dengan opsi di atas, tanpa grup):
+
+```json
+{"product_id": "<uuid>", "quantity": 2, "selected_modifiers": [
+  {"name": "Iced", "price_delta": 0, "cost_delta": 0},
+  {"name": "Extra Espresso Shot", "price_delta": 5000, "cost_delta": 2500}
+]}
+```
+
+Server menghitung `unit_price` = harga dasar + jumlah `price_delta` dan
+`unit_cost` = HPP dasar + jumlah `cost_delta`, lalu menyimpannya di
+`order_items` (disertai `price`/`cost_price` yang disinkronkan agar
+dashboard profit tetap akurat). Delta negatif ditolak.
+
+### Voucher
+
+- Publik: `POST /api/v1/vouchers/validate` `{code, subtotal}` ->
+  `{valid, discount_amount, message}` (selalu 200 untuk input terbentuk baik).
+- Admin: `GET/POST/PUT/DELETE /api/v1/admin/vouchers`.
+- `percentage`: `subtotal * value / 100`, dicap `max_discount` (bila > 0).
+  `fixed`: `value`, dicap `max_discount` (bila > 0). Diskon tidak pernah
+  melebihi subtotal. `quota: 0` = tanpa batas; `used_count` naik atomik
+  (guard kuota) di dalam transaksi checkout.
+- Seed: `SLARASHEMAT` (20% maks 15000, min 30000), `KOPIPAGI`
+  (fixed 10000, min 25000), `FOODLAB50` (50% maks 20000, tanpa min).
+- Guest checkout & checkout login menerima `voucher_code` opsional;
+  order menyimpan `discount_amount` + `voucher_code`, total akhir =
+  subtotal - diskon + ongkir.
+
+### Loyalty (stamp via nomor WhatsApp)
+
+- Publik: `GET /api/v1/loyalty/:phone` -> `{phone, points, stamps,
+  reward_eligible, next_reward_at: 10}`. Nomor dinormalisasi ke `62xxx`
+  (`08xx` dan `628xx` = pelanggan yang sama).
+- +1 stamp tiap pesanan pertama kali lunas (`paid`/`completed`), lewat
+  webhook settlement, simulasi bayar admin, maupun PATCH status admin.
+  Anti double-count via flag `loyalty_awarded` di order.
+  10 stamp = `reward_eligible: true` (reward diberikan manual).
+
+### Antrean TV & sold out
+
+- Publik: `GET /api/v1/orders/queue` -> pesanan `processing` hari ini (WIB)
+  + `completed` dalam 30 menit terakhir, processing dulu lalu completed.
+- Admin: `PATCH /api/v1/products/:id/availability` `{is_available: bool}`
+  — toggle "Habis Hari Ini" tanpa mengubah stok; produk tidak tersedia
+  ditolak saat checkout. Produk juga mengekspos `is_available` di katalog.

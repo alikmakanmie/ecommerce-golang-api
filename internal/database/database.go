@@ -72,6 +72,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.Order{},
 		&domain.OrderItem{},
 		&domain.Payment{},
+		&domain.Voucher{},
+		&domain.CustomerLoyalty{},
 	)
 }
 
@@ -83,4 +85,18 @@ func BackfillCostPrice(db *gorm.DB) error {
 	return db.Model(&domain.Product{}).
 		Where("cost_price = 0").
 		UpdateColumn("cost_price", gorm.Expr("price * 60 / 100")).Error
+}
+
+// BackfillOrderItemUnits menyinkronkan unit_price/unit_cost order item lama
+// dari snapshot price/cost_price (kolom baru dari upgrade modifier).
+// Idempotent: hanya menyentuh baris yang unit-nya masih 0.
+func BackfillOrderItemUnits(db *gorm.DB) error {
+	if err := db.Model(&domain.OrderItem{}).
+		Where("unit_price = 0").
+		UpdateColumn("unit_price", gorm.Expr("price")).Error; err != nil {
+		return err
+	}
+	return db.Model(&domain.OrderItem{}).
+		Where("unit_cost = 0").
+		UpdateColumn("unit_cost", gorm.Expr("cost_price")).Error
 }

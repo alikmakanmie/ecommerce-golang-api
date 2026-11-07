@@ -25,10 +25,12 @@ type OrderService struct {
 	addressRepo *repository.AddressRepository
 	gateway     *payment.MockGateway
 	cfg         *config.Config
+	voucherSvc  *VoucherService
+	loyaltySvc  *LoyaltyService
 }
 
-func NewOrderService(db *gorm.DB, orderRepo *repository.OrderRepository, cartRepo *repository.CartRepository, productRepo *repository.ProductRepository, paymentRepo *repository.PaymentRepository, addressRepo *repository.AddressRepository, gateway *payment.MockGateway, cfg *config.Config) *OrderService {
-	return &OrderService{db: db, orderRepo: orderRepo, cartRepo: cartRepo, productRepo: productRepo, paymentRepo: paymentRepo, addressRepo: addressRepo, gateway: gateway, cfg: cfg}
+func NewOrderService(db *gorm.DB, orderRepo *repository.OrderRepository, cartRepo *repository.CartRepository, productRepo *repository.ProductRepository, paymentRepo *repository.PaymentRepository, addressRepo *repository.AddressRepository, gateway *payment.MockGateway, cfg *config.Config, voucherSvc *VoucherService, loyaltySvc *LoyaltyService) *OrderService {
+	return &OrderService{db: db, orderRepo: orderRepo, cartRepo: cartRepo, productRepo: productRepo, paymentRepo: paymentRepo, addressRepo: addressRepo, gateway: gateway, cfg: cfg, voucherSvc: voucherSvc, loyaltySvc: loyaltySvc}
 }
 
 func generateOrderNumber() string {
@@ -43,7 +45,7 @@ func generateOrderNumber() string {
 	return fmt.Sprintf("ORD-%s-%s", time.Now().Format("20060102"), string(b))
 }
 
-func (s *OrderService) Checkout(userID, addressID uuid.UUID, paymentMethod, notes string) (*domain.Order, error) {
+func (s *OrderService) Checkout(userID, addressID uuid.UUID, paymentMethod, notes, voucherCode string) (*domain.Order, error) {
 	if strings.TrimSpace(paymentMethod) == "" {
 		paymentMethod = "qris"
 	}
@@ -91,6 +93,8 @@ func (s *OrderService) Checkout(userID, addressID uuid.UUID, paymentMethod, note
 				ProductName: ci.Product.Name,
 				Price:       ci.Price,
 				CostPrice:   ci.Product.CostPrice,
+				UnitPrice:   ci.Price,
+				UnitCost:    ci.Product.CostPrice,
 				Quantity:    ci.Quantity,
 				Subtotal:    sub,
 			})
@@ -99,7 +103,19 @@ func (s *OrderService) Checkout(userID, addressID uuid.UUID, paymentMethod, note
 		if subtotal >= 500000 {
 			shippingCost = 0
 		}
-		total := subtotal + shippingCost
+		// Voucher (opsional): validasi + potongan + increment used_count
+		// atomik di dalam transaksi yang sama.
+		var discount int64
+		var voucher *domain.Voucher
+		if strings.TrimSpace(voucherCode) != "" {
+			v, d, err := s.voucherSvc.ApplyInTx(tx, voucherCode, subtotal)
+			if err != nil {
+				return err
+			}
+			voucher = v
+			discount = d
+		}
+		total := subtotal - discount + shippingCost
 		orderNumber := generateOrderNumber()
 		order := &domain.Order{
 			UserID:          &userID,
@@ -113,11 +129,15 @@ func (s *OrderService) Checkout(userID, addressID uuid.UUID, paymentMethod, note
 			ShippingAddress: addr.FullAddress(),
 			Status:          domain.OrderPending,
 			Subtotal:        subtotal,
+			DiscountAmount:  discount,
 			ShippingCost:    shippingCost,
 			Total:           total,
 			PaymentMethod:   paymentMethod,
 			Notes:           notes,
 			Items:           orderItems,
+		}
+		if voucher != nil {
+			order.VoucherCode = voucher.Code
 		}
 		if err := orderRepo.Create(tx, order); err != nil {
 			return err
@@ -159,9 +179,10 @@ func (s *OrderService) Checkout(userID, addressID uuid.UUID, paymentMethod, note
 // Pelanggan kirim items langsung; stok divalidasi + dikurangi atomik di
 // dalam satu transaksi (cek stok lalu DecreaseStock dengan guard stock>=qty).
 type GuestCheckoutItem struct {
-	ProductID uuid.UUID `json:"product_id"`
-	Quantity  int       `json:"quantity"`
-	Notes     string    `json:"notes"`
+	ProductID         uuid.UUID                 `json:"product_id"`
+	Quantity          int                       `json:"quantity"`
+	Notes             string                    `json:"notes"`
+	SelectedModifiers []domain.SelectedModifier `json:"selected_modifiers"`
 }
 
 type GuestDeliveryAddress struct {
@@ -179,6 +200,7 @@ type GuestCheckoutInput struct {
 	TableNumber     string                `json:"table_number"`
 	PaymentMethod   string                `json:"payment_method"`
 	Notes           string                `json:"notes"`
+	VoucherCode     string                `json:"voucher_code"`
 	DeliveryAddress *GuestDeliveryAddress `json:"delivery_address"`
 }
 
@@ -238,19 +260,34 @@ func (s *OrderService) GuestCheckout(in GuestCheckoutInput) (*domain.Order, erro
 			if !product.IsActive {
 				return fmt.Errorf("produk %s tidak aktif", product.Name)
 			}
+			if !product.IsAvailable {
+				return fmt.Errorf("produk %s sedang habis hari ini", product.Name)
+			}
 			if product.Stock < it.Quantity {
 				return fmt.Errorf("stok produk %s tidak mencukupi", product.Name)
 			}
-			sub := product.Price * int64(it.Quantity)
+			// Harga satuan = harga dasar + delta modifier yang dipilih.
+			unitPrice, unitCost, err := ApplyModifiers(product.Price, product.CostPrice, it.SelectedModifiers)
+			if err != nil {
+				return err
+			}
+			selectedJSON, err := MarshalSelectedModifiers(it.SelectedModifiers)
+			if err != nil {
+				return err
+			}
+			sub := unitPrice * int64(it.Quantity)
 			subtotal += sub
 			orderItems = append(orderItems, domain.OrderItem{
-				ProductID:   it.ProductID,
-				ProductName: product.Name,
-				Price:       product.Price,
-				CostPrice:   product.CostPrice,
-				Quantity:    it.Quantity,
-				Notes:       strings.TrimSpace(it.Notes),
-				Subtotal:    sub,
+				ProductID:         it.ProductID,
+				ProductName:       product.Name,
+				Price:             unitPrice,
+				CostPrice:         unitCost,
+				SelectedModifiers: selectedJSON,
+				UnitPrice:         unitPrice,
+				UnitCost:          unitCost,
+				Quantity:          it.Quantity,
+				Notes:             strings.TrimSpace(it.Notes),
+				Subtotal:          sub,
 			})
 		}
 		var shippingCost int64
@@ -272,7 +309,20 @@ func (s *OrderService) GuestCheckout(in GuestCheckoutInput) (*domain.Order, erro
 				strings.TrimSpace(a.Street), strings.TrimSpace(a.City),
 				strings.TrimSpace(a.Province), strings.TrimSpace(a.PostalCode))
 		}
-		total := subtotal + shippingCost
+		// Voucher (opsional): validasi + potongan + increment used_count
+		// atomik di dalam transaksi yang sama. Ongkir gratis tetap dihitung
+		// dari subtotal sebelum diskon (aturan lama).
+		var discount int64
+		var voucher *domain.Voucher
+		if strings.TrimSpace(in.VoucherCode) != "" {
+			v, d, err := s.voucherSvc.ApplyInTx(tx, in.VoucherCode, subtotal)
+			if err != nil {
+				return err
+			}
+			voucher = v
+			discount = d
+		}
+		total := subtotal - discount + shippingCost
 		orderNumber := generateOrderNumber()
 		order := &domain.Order{
 			UserID:          nil,
@@ -286,11 +336,15 @@ func (s *OrderService) GuestCheckout(in GuestCheckoutInput) (*domain.Order, erro
 			ShippingAddress: shippingAddress,
 			Status:          domain.OrderPending,
 			Subtotal:        subtotal,
+			DiscountAmount:  discount,
 			ShippingCost:    shippingCost,
 			Total:           total,
 			PaymentMethod:   paymentMethod,
 			Notes:           strings.TrimSpace(in.Notes),
 			Items:           orderItems,
+		}
+		if voucher != nil {
+			order.VoucherCode = voucher.Code
 		}
 		if err := orderRepo.Create(tx, order); err != nil {
 			return err
@@ -364,20 +418,74 @@ func (s *OrderService) ListOrders(userID uuid.UUID, isAdmin bool, page, limit in
 }
 
 func (s *OrderService) UpdateOrderStatus(orderID uuid.UUID, target domain.OrderStatus, processorID *uuid.UUID, processorName string) (*domain.Order, error) {
-	order, err := s.orderRepo.FindByID(orderID)
+	var updated *domain.Order
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		orderRepo := s.orderRepo.WithTx(tx)
+		order, err := orderRepo.FindByID(orderID)
+		if err != nil {
+			return errors.New("order tidak ditemukan")
+		}
+		if !order.CanTransitionTo(target) {
+			return fmt.Errorf("transisi status dari %s ke %s tidak diizinkan", order.Status, target)
+		}
+		if err := orderRepo.UpdateStatusByAdmin(tx, orderID, target, processorID, processorName); err != nil {
+			return err
+		}
+		order.Status = target
+		order.ProcessedByUserID = processorID
+		order.ProcessedByName = processorName
+		// Pesanan pertama kali lunas (paid/completed) -> +1 stamp loyalty.
+		// AwardStampTx idempotent via flag loyalty_awarded di order.
+		if target == domain.OrderPaid || target == domain.OrderCompleted {
+			if err := s.loyaltySvc.AwardStampTx(tx, order); err != nil {
+				return err
+			}
+		}
+		updated = order
+		return nil
+	})
 	if err != nil {
-		return nil, errors.New("order tidak ditemukan")
-	}
-	if !order.CanTransitionTo(target) {
-		return nil, fmt.Errorf("transisi status dari %s ke %s tidak diizinkan", order.Status, target)
-	}
-	if err := s.orderRepo.UpdateStatusByAdmin(nil, orderID, target, processorID, processorName); err != nil {
 		return nil, err
 	}
-	order.Status = target
-	order.ProcessedByUserID = processorID
-	order.ProcessedByName = processorName
-	return order, nil
+	return updated, nil
+}
+
+// QueueItem adalah satu baris layar antrean TV (/queue).
+type QueueItem struct {
+	OrderNumber  string             `json:"order_number"`
+	CustomerName string             `json:"customer_name"`
+	OrderType    string             `json:"order_type"`
+	TableNumber  string             `json:"table_number,omitempty"`
+	Status       domain.OrderStatus `json:"status"`
+	CreatedAt    time.Time          `json:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
+}
+
+// GetQueue mengembalikan antrean hari ini (zona Asia/Jakarta) untuk layar TV:
+// pesanan processing (sedang disiapkan) + completed yang selesai dalam
+// 30 menit terakhir (siap diambil/diantar). Processing dulu, lalu completed;
+// di dalam tiap status diurutkan dari yang paling lama dibuat.
+func (s *OrderService) GetQueue() ([]QueueItem, error) {
+	loc := wibLocation()
+	now := time.Now().In(loc)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	startUTC := today.UTC()
+	endUTC := today.AddDate(0, 0, 1).UTC()
+	readySince := time.Now().Add(-30 * time.Minute).UTC()
+	var items []QueueItem
+	err := s.db.Model(&domain.Order{}).
+		Select("order_number, customer_name, order_type, table_number, status, created_at, updated_at").
+		Where("(status = ? AND datetime(created_at) >= datetime(?) AND datetime(created_at) < datetime(?)) OR (status = ? AND datetime(updated_at) >= datetime(?))",
+			domain.OrderProcessing, startUTC, endUTC, domain.OrderCompleted, readySince).
+		Order("CASE WHEN status = 'processing' THEN 0 ELSE 1 END, created_at ASC").
+		Find(&items).Error
+	if err != nil {
+		return nil, err
+	}
+	if items == nil {
+		items = []QueueItem{}
+	}
+	return items, nil
 }
 
 func (s *OrderService) CancelOrder(userID, orderID uuid.UUID) (*domain.Order, error) {

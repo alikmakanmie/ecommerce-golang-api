@@ -17,10 +17,11 @@ type PaymentService struct {
 	paymentRepo *repository.PaymentRepository
 	orderRepo   *repository.OrderRepository
 	productRepo *repository.ProductRepository
+	loyaltySvc  *LoyaltyService
 }
 
-func NewPaymentService(db *gorm.DB, paymentRepo *repository.PaymentRepository, orderRepo *repository.OrderRepository, productRepo *repository.ProductRepository) *PaymentService {
-	return &PaymentService{db: db, paymentRepo: paymentRepo, orderRepo: orderRepo, productRepo: productRepo}
+func NewPaymentService(db *gorm.DB, paymentRepo *repository.PaymentRepository, orderRepo *repository.OrderRepository, productRepo *repository.ProductRepository, loyaltySvc *LoyaltyService) *PaymentService {
+	return &PaymentService{db: db, paymentRepo: paymentRepo, orderRepo: orderRepo, productRepo: productRepo, loyaltySvc: loyaltySvc}
 }
 
 func (s *PaymentService) HandleWebhook(transactionID, status string, rawPayload string) (*domain.Payment, error) {
@@ -59,6 +60,12 @@ func (s *PaymentService) HandleWebhook(transactionID, status string, rawPayload 
 			order, err := orderRepo.FindByID(pay.OrderID)
 			if err == nil && order.Status == domain.OrderPending {
 				if err := orderRepo.UpdateStatus(tx, order.ID, domain.OrderPaid); err != nil {
+					return err
+				}
+				// Pesanan lunas pertama kali -> +1 stamp loyalty (idempotent
+				// via flag loyalty_awarded; webhook settlement kedua sudah
+				// return lebih awal di atas).
+				if err := s.loyaltySvc.AwardStampTx(tx, order); err != nil {
 					return err
 				}
 			}

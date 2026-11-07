@@ -33,6 +33,9 @@ func main() {
 	if err := database.BackfillCostPrice(db); err != nil {
 		log.Fatalf("backfill cost_price error: %v", err)
 	}
+	if err := database.BackfillOrderItemUnits(db); err != nil {
+		log.Fatalf("backfill unit_price/unit_cost error: %v", err)
+	}
 	log.Println("database connected & migrated")
 	if cfg.SeedDB {
 		if err := seeder.Run(db); err != nil {

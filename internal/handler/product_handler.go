@@ -17,17 +17,19 @@ type ProductHandler struct{ svc *service.ProductService }
 func NewProductHandler(svc *service.ProductService) *ProductHandler { return &ProductHandler{svc: svc} }
 
 type ProductRequest struct {
-	CategoryID  string `json:"category_id" binding:"required"`
-	Name        string `json:"name" binding:"required,min=2,max=150"`
-	Slug        string `json:"slug" binding:"max=170"`
-	Description string `json:"description"`
-	Price       int64  `json:"price" binding:"min=0"`
-	CostPrice   int64  `json:"cost_price" binding:"min=0"`
-	Stock       int    `json:"stock" binding:"min=0"`
-	SKU         string `json:"sku" binding:"required,max=50"`
-	ImageURL    string `json:"image_url"`
-	WeightGram  int    `json:"weight_gram" binding:"min=0"`
-	IsActive    *bool  `json:"is_active"`
+	CategoryID  string                  `json:"category_id" binding:"required"`
+	Name        string                  `json:"name" binding:"required,min=2,max=150"`
+	Slug        string                  `json:"slug" binding:"max=170"`
+	Description string                  `json:"description"`
+	Price       int64                   `json:"price" binding:"min=0"`
+	CostPrice   int64                   `json:"cost_price" binding:"min=0"`
+	Stock       int                     `json:"stock" binding:"min=0"`
+	SKU         string                  `json:"sku" binding:"required,max=50"`
+	ImageURL    string                  `json:"image_url"`
+	WeightGram  int                     `json:"weight_gram" binding:"min=0"`
+	IsActive    *bool                   `json:"is_active"`
+	IsAvailable *bool                   `json:"is_available"`
+	Modifiers   []domain.ModifierGroup  `json:"modifiers"`
 }
 
 func (h *ProductHandler) ListProducts(c *gin.Context) {
@@ -77,7 +79,8 @@ func (h *ProductHandler) CreateProduct(c *gin.Context) {
 	p, err := h.svc.CreateProduct(service.ProductInput{
 		CategoryID: catID, Name: req.Name, Slug: req.Slug, Description: req.Description,
 		Price: req.Price, CostPrice: req.CostPrice, Stock: req.Stock, SKU: req.SKU, ImageURL: req.ImageURL,
-		WeightGram: req.WeightGram, IsActive: isActive,
+		WeightGram: req.WeightGram, IsActive: isActive, IsAvailable: req.IsAvailable,
+		Modifiers: req.Modifiers,
 	})
 	if err != nil {
 		utils.Error(c, http.StatusBadRequest, err.Error())
@@ -126,7 +129,8 @@ func (h *ProductHandler) UpdateProduct(c *gin.Context) {
 	p, err := h.svc.UpdateProduct(id, service.ProductInput{
 		CategoryID: catID, Name: name, Slug: req.Slug, Description: req.Description,
 		Price: req.Price, CostPrice: req.CostPrice, Stock: req.Stock, SKU: sku, ImageURL: req.ImageURL,
-		WeightGram: req.WeightGram, IsActive: isActive,
+		WeightGram: req.WeightGram, IsActive: isActive, IsAvailable: req.IsAvailable,
+		Modifiers: req.Modifiers,
 	})
 	if err != nil {
 		utils.Error(c, http.StatusBadRequest, err.Error())
@@ -146,4 +150,29 @@ func (h *ProductHandler) DeleteProduct(c *gin.Context) {
 		return
 	}
 	utils.Success(c, http.StatusOK, "produk dihapus", nil)
+}
+
+type AvailabilityRequest struct {
+	IsAvailable bool `json:"is_available"`
+}
+
+// SetAvailability adalah toggle 1-klik "Habis Hari Ini" (admin/superadmin):
+// mengubah is_available tanpa menyentuh stok.
+func (h *ProductHandler) SetAvailability(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.Error(c, http.StatusBadRequest, "id produk tidak valid")
+		return
+	}
+	var req AvailabilityRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	p, err := h.svc.SetAvailability(id, req.IsAvailable)
+	if err != nil {
+		utils.Error(c, http.StatusNotFound, err.Error())
+		return
+	}
+	utils.Success(c, http.StatusOK, "ketersediaan produk diperbarui", p)
 }

@@ -2,6 +2,7 @@ package router
 
 import (
 	"net/http"
+	"time"
 
 	"ecommerce-api/internal/config"
 	"ecommerce-api/internal/domain"
@@ -23,14 +24,18 @@ func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	cartRepo := repository.NewCartRepository(db)
 	orderRepo := repository.NewOrderRepository(db)
 	paymentRepo := repository.NewPaymentRepository(db)
+	voucherRepo := repository.NewVoucherRepository(db)
+	loyaltyRepo := repository.NewLoyaltyRepository(db)
 
 	gateway := payment.NewMockGateway(cfg.PaymentMockBaseURL)
 	authSvc := service.NewAuthService(userRepo, cfg)
 	userSvc := service.NewUserService(userRepo, addressRepo)
 	productSvc := service.NewProductService(productRepo, categoryRepo)
 	cartSvc := service.NewCartService(db, cartRepo, productRepo)
-	orderSvc := service.NewOrderService(db, orderRepo, cartRepo, productRepo, paymentRepo, addressRepo, gateway, cfg)
-	paymentSvc := service.NewPaymentService(db, paymentRepo, orderRepo, productRepo)
+	voucherSvc := service.NewVoucherService(db, voucherRepo)
+	loyaltySvc := service.NewLoyaltyService(db, loyaltyRepo)
+	orderSvc := service.NewOrderService(db, orderRepo, cartRepo, productRepo, paymentRepo, addressRepo, gateway, cfg, voucherSvc, loyaltySvc)
+	paymentSvc := service.NewPaymentService(db, paymentRepo, orderRepo, productRepo, loyaltySvc)
 	analyticsSvc := service.NewAnalyticsService(db)
 
 	authH := handler.NewAuthHandler(authSvc)
@@ -41,9 +46,14 @@ func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	orderH := handler.NewOrderHandler(orderSvc, userSvc)
 	paymentH := handler.NewPaymentHandler(paymentSvc, cfg.WebhookSecret)
 	analyticsH := handler.NewAnalyticsHandler(analyticsSvc)
+	voucherH := handler.NewVoucherHandler(voucherSvc)
+	loyaltyH := handler.NewLoyaltyHandler(loyaltySvc)
+	uploadH := handler.NewUploadHandler(cfg.PublicBaseURL, "./uploads")
 
-	// 20 req/detik per IP untuk seluruh API, 5 login/menit per IP.
-	publicLimiter := middleware.NewRateLimiter(20, 40)
+	// Rate limit global API per IP (default 20 req/detik, burst 40;
+	// bisa dibuka lebar via PUBLIC_RATE_LIMIT/PUBLIC_BURST saat benchmark),
+	// 5 login/menit per IP.
+	publicLimiter := middleware.NewRateLimiter(cfg.PublicRateLimit, cfg.PublicBurst)
 	loginLimiter := middleware.NewRateLimiter(5.0/60.0, 5)
 
 	r := gin.Default()
@@ -66,6 +76,9 @@ func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	v1.POST("/auth/register", authH.Register)
 	v1.POST("/orders/guest-checkout", orderH.GuestCheckout)
 	v1.GET("/orders/track/:order_number", orderH.TrackOrder)
+	v1.GET("/orders/queue", orderH.GetQueue)
+	v1.POST("/vouchers/validate", voucherH.ValidateVoucher)
+	v1.GET("/loyalty/:phone", loyaltyH.GetLoyalty)
 	v1.POST("/auth/login", loginLimiter.Limit("terlalu banyak percobaan login, coba lagi nanti"), authH.Login)
 	v1.POST("/auth/refresh", authH.Refresh)
 	v1.GET("/products", productH.ListProducts)
@@ -100,7 +113,12 @@ func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	admin.Use(middleware.RequireRole(domain.RoleAdmin, domain.RoleSuperAdmin))
 	admin.POST("/products", productH.CreateProduct)
 	admin.PUT("/products/:id", productH.UpdateProduct)
+	admin.PATCH("/products/:id/availability", productH.SetAvailability)
 	admin.DELETE("/products/:id", productH.DeleteProduct)
+	admin.GET("/admin/vouchers", voucherH.ListVouchers)
+	admin.POST("/admin/vouchers", voucherH.CreateVoucher)
+	admin.PUT("/admin/vouchers/:id", voucherH.UpdateVoucher)
+	admin.DELETE("/admin/vouchers/:id", voucherH.DeleteVoucher)
 	admin.POST("/categories", categoryH.CreateCategory)
 	admin.PUT("/categories/:id", categoryH.UpdateCategory)
 	admin.DELETE("/categories/:id", categoryH.DeleteCategory)
@@ -108,6 +126,9 @@ func New(cfg *config.Config, db *gorm.DB) *gin.Engine {
 	admin.PATCH("/admin/orders/:id/status", orderH.UpdateOrderStatus)
 	admin.POST("/admin/orders/:id/simulate-payment", paymentH.SimulatePayment)
 	admin.GET("/admin/analytics/profit", analyticsH.GetProfit)
+	admin.POST("/upload",
+		middleware.ConcurrencyLimiter(cfg.UploadMaxConcurrent, 10*time.Second),
+		uploadH.Upload)
 
 	// Superadmin saja: manajemen user & akses.
 	superadminH := handler.NewSuperAdminHandler(userSvc)

@@ -25,6 +25,7 @@ type CheckoutRequest struct {
 	AddressID     string `json:"address_id" binding:"required"`
 	PaymentMethod string `json:"payment_method"`
 	Notes         string `json:"notes"`
+	VoucherCode   string `json:"voucher_code"`
 }
 
 type UpdateOrderStatusRequest struct {
@@ -47,7 +48,7 @@ func (h *OrderHandler) Checkout(c *gin.Context) {
 		utils.Error(c, http.StatusBadRequest, "address_id tidak valid")
 		return
 	}
-	order, err := h.svc.Checkout(id, addrID, req.PaymentMethod, req.Notes)
+	order, err := h.svc.Checkout(id, addrID, req.PaymentMethod, req.Notes, req.VoucherCode)
 	if err != nil {
 		utils.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -177,6 +178,7 @@ type GuestCheckoutRequest struct {
 	TableNumber     string                        `json:"table_number"`
 	PaymentMethod   string                        `json:"payment_method" binding:"required"`
 	Notes           string                        `json:"notes"`
+	VoucherCode     string                        `json:"voucher_code"`
 	DeliveryAddress *service.GuestDeliveryAddress `json:"delivery_address"`
 }
 
@@ -195,6 +197,7 @@ func (h *OrderHandler) GuestCheckout(c *gin.Context) {
 		TableNumber:     req.TableNumber,
 		PaymentMethod:   req.PaymentMethod,
 		Notes:           req.Notes,
+		VoucherCode:     req.VoucherCode,
 		DeliveryAddress: req.DeliveryAddress,
 	})
 	if err != nil {
@@ -212,4 +215,14 @@ func (h *OrderHandler) TrackOrder(c *gin.Context) {
 		return
 	}
 	utils.Success(c, http.StatusOK, "order ditemukan", order)
+}
+
+// GetQueue adalah endpoint publik untuk layar TV antrean kafe (/queue di web).
+func (h *OrderHandler) GetQueue(c *gin.Context) {
+	items, err := h.svc.GetQueue()
+	if err != nil {
+		utils.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	utils.Success(c, http.StatusOK, "antrean hari ini", items)
 }

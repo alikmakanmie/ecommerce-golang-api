@@ -27,6 +27,10 @@ func setupTestDB(t *testing.T) *config.Config {
 		JWTAccessTTL:      15 * time.Minute,
 		JWTRefreshTTL:     7 * 24 * time.Hour,
 		PaymentMockBaseURL: "http://localhost:8080",
+		// Limiter dibuka lebar agar tes menguji logika, bukan limiter.
+		PublicRateLimit:    1000,
+		PublicBurst:        1000,
+		UploadMaxConcurrent: 20,
 	}
 	db, err := database.Connect(cfg)
 	if err != nil {
@@ -51,6 +55,8 @@ type testServices struct {
 	cart    *CartService
 	order   *OrderService
 	pay     *PaymentService
+	voucher *VoucherService
+	loyalty *LoyaltyService
 }
 
 func newTestServices(t *testing.T, cfg *config.Config) *testServices {
@@ -63,14 +69,20 @@ func newTestServices(t *testing.T, cfg *config.Config) *testServices {
 	cartRepo := repository.NewCartRepository(db)
 	orderRepo := repository.NewOrderRepository(db)
 	paymentRepo := repository.NewPaymentRepository(db)
+	voucherRepo := repository.NewVoucherRepository(db)
+	loyaltyRepo := repository.NewLoyaltyRepository(db)
 	gateway := payment.NewMockGateway(cfg.PaymentMockBaseURL)
+	voucherSvc := NewVoucherService(db, voucherRepo)
+	loyaltySvc := NewLoyaltyService(db, loyaltyRepo)
 	return &testServices{
 		auth:    NewAuthService(userRepo, cfg),
 		user:    NewUserService(userRepo, addressRepo),
 		product: NewProductService(productRepo, categoryRepo),
 		cart:    NewCartService(db, cartRepo, productRepo),
-		order:   NewOrderService(db, orderRepo, cartRepo, productRepo, paymentRepo, addressRepo, gateway, cfg),
-		pay:     NewPaymentService(db, paymentRepo, orderRepo, productRepo),
+		order:   NewOrderService(db, orderRepo, cartRepo, productRepo, paymentRepo, addressRepo, gateway, cfg, voucherSvc, loyaltySvc),
+		pay:     NewPaymentService(db, paymentRepo, orderRepo, productRepo, loyaltySvc),
+		voucher: voucherSvc,
+		loyalty: loyaltySvc,
 	}
 }
 
@@ -159,7 +171,7 @@ func mustCheckout(t *testing.T, svc *testServices, user *domain.User, product *d
 	if _, err := svc.cart.AddItem(user.ID, product.ID, qty); err != nil {
 		t.Fatalf("add item: %v", err)
 	}
-	order, err := svc.order.Checkout(user.ID, addrs[0].ID, "qris", "")
+	order, err := svc.order.Checkout(user.ID, addrs[0].ID, "qris", "", "")
 	if err != nil {
 		t.Fatalf("checkout: %v", err)
 	}
@@ -183,7 +195,7 @@ func TestCartCheckoutFlow(t *testing.T) {
 		t.Fatalf("subtotal = %d, want 200000", cart.Subtotal())
 	}
 	addrs, _ := svc.user.ListAddresses(user.ID)
-	order, err := svc.order.Checkout(user.ID, addrs[0].ID, "qris", "")
+	order, err := svc.order.Checkout(user.ID, addrs[0].ID, "qris", "", "")
 	if err != nil {
 		t.Fatalf("checkout: %v", err)
 	}

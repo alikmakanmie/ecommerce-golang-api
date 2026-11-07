@@ -147,7 +147,7 @@ func (s *AnalyticsService) GetProfitAnalytics(period, startDate, endDate string)
 	dateCond := ""
 	var args []interface{}
 	if hasRange {
-		dateCond = " AND created_at >= ? AND created_at < ?"
+		dateCond = " AND datetime(created_at) >= datetime(?) AND datetime(created_at) < datetime(?)"
 		args = append(args, start, end)
 	}
 	revIn := "status IN ('paid','processing','shipped','completed')"
@@ -170,7 +170,7 @@ func (s *AnalyticsService) GetProfitAnalytics(period, startDate, endDate string)
 		"FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id " +
 		"WHERE o.status IN ('paid','processing','shipped','completed')"
 	if hasRange {
-		qc += " AND o.created_at >= ? AND o.created_at < ?"
+		qc += " AND datetime(o.created_at) >= datetime(?) AND datetime(o.created_at) < datetime(?)"
 	}
 	qc += " AND o.deleted_at IS NULL AND oi.deleted_at IS NULL"
 	if err := s.db.Raw(qc, args...).Scan(&cogs).Error; err != nil {
@@ -219,7 +219,7 @@ func (s *AnalyticsService) GetProfitAnalytics(period, startDate, endDate string)
 		"FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id " +
 		"WHERE o.status IN ('paid','processing','shipped','completed')"
 	if hasRange {
-		qcd += " AND o.created_at >= ? AND o.created_at < ?"
+		qcd += " AND datetime(o.created_at) >= datetime(?) AND datetime(o.created_at) < datetime(?)"
 	}
 	qcd += " AND o.deleted_at IS NULL AND oi.deleted_at IS NULL GROUP BY day ORDER BY day"
 	if err := s.db.Raw(qcd, args...).Scan(&cogsDays).Error; err != nil {
@@ -323,7 +323,7 @@ func (s *AnalyticsService) GetProfitAnalytics(period, startDate, endDate string)
 		"FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id " +
 		"WHERE o.status IN ('paid','processing','shipped','completed')"
 	if hasRange {
-		qtop += " AND o.created_at >= ? AND o.created_at < ?"
+		qtop += " AND datetime(o.created_at) >= datetime(?) AND datetime(o.created_at) < datetime(?)"
 	}
 	qtop += " AND o.deleted_at IS NULL AND oi.deleted_at IS NULL GROUP BY oi.product_id, oi.product_name ORDER BY quantity_sold DESC, revenue DESC LIMIT 5"
 	if err := s.db.Raw(qtop, args...).Scan(&topRows).Error; err != nil {
@@ -341,7 +341,7 @@ func (s *AnalyticsService) GetProfitAnalytics(period, startDate, endDate string)
 	var orders []domain.Order
 	recentQ := s.db.Model(&domain.Order{})
 	if hasRange {
-		recentQ = recentQ.Where("created_at >= ? AND created_at < ?", start, end)
+		recentQ = recentQ.Where("datetime(created_at) >= datetime(?) AND datetime(created_at) < datetime(?)", start, end)
 	}
 	if err := recentQ.Order("created_at DESC").Limit(10).Find(&orders).Error; err != nil {
 		return nil, err
